@@ -1,39 +1,49 @@
 #!/bin/bash
-# HermesMade — 一键安装所有工具
-# 将三个 CLI 工具注册到 PATH
+# HermesMade — install all tools or individual ones
+# Usage:
+#   bash install.sh              # install all 3 tools
+#   bash install.sh prompt       # install only prompt-inspector
+#   bash install.sh model        # install only model-watch
+#   bash install.sh api          # install only api-cost
 
-HERMESMADE="$HOME/HermesMade"
+set -e
+HERMESMADE="$(cd "$(dirname "$0")" && pwd)"
 
-echo "🔧 安装 HermesMade 工具..."
-
-# Prompt Inspector
-cat > /usr/local/bin/prompt-inspector << 'SCRIPT'
-#!/bin/bash
-exec python3 "$HOME/HermesMade/prompt-inspector/prompt-inspector.py" "$@"
-SCRIPT
-chmod +x /usr/local/bin/prompt-inspector 2>/dev/null || {
-    mkdir -p ~/bin
-    cp /usr/local/bin/prompt-inspector ~/bin/prompt-inspector 2>/dev/null || true
+install_one() {
+    local dir="$1"
+    local name="$2"
+    echo "📦 Installing $name..."
+    pip install --break-system-packages "$HERMESMADE/$dir" 2>/dev/null || \
+    pip install "$HERMESMADE/$dir" 2>/dev/null || {
+        echo "⚠ pip install failed, using symlink fallback..."
+        ln -sf "$HERMESMADE/$dir/${name//-/_}/cli.py" "/usr/local/bin/$name" 2>/dev/null || {
+            mkdir -p ~/bin
+            ln -sf "$HERMESMADE/$dir/${name//-/_}/cli.py" "$HOME/bin/$name"
+            echo "   Linked to ~/bin/$name (make sure ~/bin is in PATH)"
+        }
+    }
+    echo "   ✅ $name installed"
 }
 
-# Model Watch
-cat > /usr/local/bin/model-watch << 'SCRIPT'
-#!/bin/bash
-exec python3 "$HOME/HermesMade/model-watch/model-watch.py" "$@"
-SCRIPT
-chmod +x /usr/local/bin/model-watch 2>/dev/null || true
+case "${1:-all}" in
+    prompt)
+        install_one "prompt-inspector" "prompt-inspector"
+        ;;
+    model)
+        install_one "model-watch" "model-watch"
+        ;;
+    api)
+        install_one "api-cost-compare" "api-cost"
+        ;;
+    all|*)
+        install_one "prompt-inspector" "prompt-inspector"
+        install_one "model-watch" "model-watch"
+        install_one "api-cost-compare" "api-cost"
+        ;;
+esac
 
-# API Cost Compare
-cat > /usr/local/bin/api-cost << 'SCRIPT'
-#!/bin/bash
-exec python3 "$HOME/HermesMade/api-cost-compare/api-cost-compare.py" "$@"
-SCRIPT
-chmod +x /usr/local/bin/api-cost 2>/dev/null || true
-
-echo "✅ 完成！"
 echo ""
-echo "可用命令:"
-echo "  prompt-inspector '你的提示词'    # 审查风险分析"
-echo "  model-watch demo                 # 查看基准测试题目"
-echo "  api-cost recommend coding        # 按场景推荐模型"
-echo "  api-cost list                    # 列出所有定价"
+echo "Done! Available commands:"
+echo "  prompt-inspector 'your prompt'"
+echo "  model-watch demo"
+echo "  api-cost recommend coding"

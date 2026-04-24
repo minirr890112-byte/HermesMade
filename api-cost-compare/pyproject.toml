@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "api-cost-compare"
+version = "0.1.0"
+description = "Compare pricing across 18 AI models, find the cheapest for your use case, track your API spending"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+]
+keywords = ["ai", "api", "pricing", "cost", "openai", "claude", "deepseek"]
+urls = { repository = "https://github.com/minirr890112-byte/HermesMade" }
+
+[project.scripts]
+api-cost = "api_cost_compare.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["api_cost_compare*"]

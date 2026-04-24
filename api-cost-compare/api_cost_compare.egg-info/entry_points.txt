@@ -1,0 +1,2 @@
+[console_scripts]
+api-cost = api_cost_compare.cli:main

@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prompt-inspector"
+version = "0.1.0"
+description = "Scan AI prompts for censorship trigger words, suggest rewrites, and provide uncensored system presets"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+]
+keywords = ["ai", "prompt", "censorship", "claude", "chatgpt", "llm"]
+urls = { repository = "https://github.com/minirr890112-byte/HermesMade" }
+
+[project.scripts]
+prompt-inspector = "prompt_inspector.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["prompt_inspector*"]

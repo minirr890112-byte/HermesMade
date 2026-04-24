@@ -1,0 +1,2 @@
+[console_scripts]
+prompt-inspector = prompt_inspector.cli:main

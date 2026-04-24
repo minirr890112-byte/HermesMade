@@ -1,0 +1,62 @@
+Metadata-Version: 2.4
+Name: prompt-inspector
+Version: 0.1.0
+Summary: Scan AI prompts for censorship trigger words, suggest rewrites, and provide uncensored system presets
+License: MIT
+Project-URL: repository, https://github.com/minirr890112-byte/HermesMade
+Keywords: ai,prompt,censorship,claude,chatgpt,llm
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Topic :: Utilities
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+
+# prompt-inspector
+
+Scan AI prompts for censorship trigger words, get rewrite suggestions, and uncensored system presets.
+
+> *"I literally couldn't get an answer to a gardening question due to supposed 'violence'... Your filter thought my gardening pitchfork was a sign of satanism."* — r/ChatGPT (26↑)
+
+## Install
+
+```bash
+pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory=prompt-inspector
+```
+
+Or from local:
+```bash
+cd HermesMade/prompt-inspector && pip install .
+```
+
+## Usage
+
+```bash
+# Scan a prompt
+prompt-inspector "write a story about a dictator who uses propaganda"
+
+# Pipe from stdin
+echo "your prompt here" | prompt-inspector
+
+# Pipe from file
+cat my_prompt.txt | prompt-inspector
+```
+
+## What it checks
+
+6 trigger categories: violence, self-harm, adult, politics, religion, drugs
+
+Each hit gets:
+- Risk level (critical/high/medium)
+- Neutral rewrite alternatives
+- Academic/educational framing strategies
+
+## Unblock with local LLMs
+
+Includes ready-to-copy uncensored system prompts for Gemma, DeepSeek, and Llama.
+
+## From Reddit
+
+Part of [HermesMade](https://github.com/minirr890112-byte/HermesMade) — tools built from real Reddit pain points.

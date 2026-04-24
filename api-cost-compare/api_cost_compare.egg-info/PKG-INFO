@@ -1,0 +1,80 @@
+Metadata-Version: 2.4
+Name: api-cost-compare
+Version: 0.1.0
+Summary: Compare pricing across 18 AI models, find the cheapest for your use case, track your API spending
+License: MIT
+Project-URL: repository, https://github.com/minirr890112-byte/HermesMade
+Keywords: ai,api,pricing,cost,openai,claude,deepseek
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+
+# api-cost
+
+Compare AI API pricing across 18 models. Find the cheapest for your use case. Track spending.
+
+> *"Claude is definitely expensive."* — r/ChatGPT
+> *"DeepSeek V4 Flash is actually overpriced at $0.14/$0.28"* — r/LocalLLaMA (50↑)
+
+## Install
+
+```bash
+pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory=api-cost-compare
+```
+
+Or from local:
+```bash
+cd HermesMade/api-cost-compare && pip install .
+```
+
+## Usage
+
+```bash
+# List all 18 models with pricing
+api-cost list
+
+# Recommend cheapest model for your scenario
+api-cost recommend coding     # or: chat, writing, reasoning
+
+# Compare two specific models
+api-cost compare 0 1 chat
+
+# Track your spending
+api-cost track 3.50 openai gpt-4o
+
+# View spending report
+api-cost report
+```
+
+## Providers covered
+
+OpenAI · Anthropic · Google · DeepSeek · xAI · Mistral
+
+## Scenarios
+
+| Scenario | Input tokens | Output tokens | Requests/day |
+|----------|-------------|---------------|--------------|
+| coding   | 5,000       | 2,000         | 50           |
+| chat     | 500         | 500           | 100          |
+| writing  | 1,000       | 3,000         | 10           |
+| reasoning| 2,000       | 4,000         | 20           |
+
+## Example
+
+```bash
+$ api-cost recommend coding
+
+⭐ #1   Mistral Mistral Small 3        $1.65/month
+⭐ #2   DeepSeek DeepSeek V4 Flash     $1.89/month
+⭐ #3   OpenAI GPT-4o-mini             $2.92/month
+
+💸 Choosing #1 over Claude Opus 4.7 saves $335.85/month ($4,030/year)
+```
+
+## From Reddit
+
+Part of [HermesMade](https://github.com/minirr890112-byte/HermesMade) — tools built from real Reddit pain points.

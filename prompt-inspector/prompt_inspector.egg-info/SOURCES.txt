@@ -1,0 +1,9 @@
+README.md
+pyproject.toml
+prompt_inspector/__init__.py
+prompt_inspector/cli.py
+prompt_inspector.egg-info/PKG-INFO
+prompt_inspector.egg-info/SOURCES.txt
+prompt_inspector.egg-info/dependency_links.txt
+prompt_inspector.egg-info/entry_points.txt
+prompt_inspector.egg-info/top_level.txt
