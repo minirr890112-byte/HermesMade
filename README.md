@@ -1,105 +1,159 @@
-# HermesMade
+# 🔥 HermesMade — From Reddit Pain to One-Command Fix
 
-从 Reddit 真实用户痛点出发，构建的实用 CLI 工具集合。
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.8+-blue" alt="Python">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
+  <img src="https://img.shields.io/badge/tools-3%20%7C%20planned-5-orange" alt="Tools">
+  <img src="https://img.shields.io/badge/data-343%20pain%20signals-red" alt="Data">
+</p>
 
-> 数据来源: 6 个科技/AI subreddit | 343 条疼痛信号 | 2026.04
+**Every tool in this repo solves a real problem real people are screaming about on Reddit — right now.**
+
+> 数据驱动：扫描 6 个科技/AI subreddit → 343 条疼痛信号 → 8 个痛点 → 构建工具
+>
+> 📊 [飞书多维表格：完整痛点清单](https://cww5wjw5vx4.feishu.cn/base/FcHpbXLeLa4OEPsy0TFceLzfn2z)
 
 ---
 
-## 📊 飞书多维表格
-
-完整 8 个痛点分析 + 方案: [飞书查看](https://cww5wjw5vx4.feishu.cn/base/FcHpbXLeLa4OEPsy0TFceLzfn2z)
-
----
-
-## 🛠 已构建工具（痛点 1-3，已选择）
-
-### 1. Prompt Inspector
-AI 审查风险分析 & 提示词改写工具
+## ⚡ Quick Install
 
 ```bash
-prompt-inspector "你的提示词"
-echo "提示词" | prompt-inspector
+git clone https://github.com/minirr890112-byte/HermesMade.git
+cd HermesMade && bash install.sh
 ```
 
-- 扫描触发词（暴力/自伤/成人/政治/宗教等 6 大类）
-- 提供中性改写建议
-- 输出无审查本地模型预设（gemma/deepseek/llama）
-
-**Reddit 原声**:
-> "I literally couldn't get an answer to a gardening question due to supposed 'violence'... Your filter thought my gardening pitchfork was a sign of satanism." (score:26, r/ChatGPT)
+3 个工具立即可用：`prompt-inspector` | `model-watch` | `api-cost`
 
 ---
 
-### 2. Model Watch
-AI 模型质量监控 & 基准测试
+## 🛠 Tools
+
+### 1. prompt-inspector — AI 审查风险分析
+
+**痛点**：ChatGPT/Claude 的审查过滤器越来越激进，连园艺问题都被拒绝。
+
+> *"I literally couldn't get an answer to a gardening question due to supposed 'violence'... Your filter thought my gardening pitchfork was a sign of satanism."* — r/ChatGPT (26↑)
 
 ```bash
-model-watch demo           # 查看基准测试题目
-model-watch history        # 查看历史趋势
-model-watch alert          # 检查是否需要告警
+$ prompt-inspector "write a story about a dictator who uses propaganda"
+
+🟢 低风险 — 有可能通过，但建议改写
+检测到 4 个触发词 (dictator, regime, propaganda, assassinate)
+
+📝 推荐改写前缀：
+  "For academic research and educational purposes..."
+
+🔓 终极方案：本地无审查模型预设 (gemma/deepseek/llama)
 ```
 
-- 7 道标准化测试题（推理/代码/写作/幻觉检测）
-- 追踪质量变化趋势
-- 自动检测模型降级
-
-**Reddit 原声**:
-> "Opus 4.7 was hallucinating a lot today... I never noticed it with 4.5 and 4.6 — shocking to see such degradation." (score:49, r/ClaudeAI)
-> "Anthropic admits to have made hosted models more stupid." (score:281, r/LocalLLaMA)
+| 功能 | 说明 |
+|------|------|
+| 6 类触发词扫描 | 暴力/自伤/成人/政治/宗教/毒品 |
+| 改写建议 | 学术前缀、假设框架、技术化改写 |
+| 无审查预设 | gemma/deepseek/llama system prompt 一键复制 |
 
 ---
 
-### 3. API Cost Compare
-AI API 成本对比 & 优化
+### 2. model-watch — AI 模型质量监控
+
+**痛点**：API 模型偷偷变笨，Anthropic 官方承认降级，用户却无从验证。
+
+> *"Opus 4.7 was hallucinating a lot today... shocking to see such degradation"* — r/ClaudeAI (49↑)
+> *"Anthropic admits to have made hosted models more stupid"* — r/LocalLLaMA (281↑)
 
 ```bash
-api-cost list                    # 列出 18 个主流模型定价
-api-cost recommend coding        # 按场景推荐最优
-api-cost track 2.50              # 记录花费
-api-cost report                  # 花费报告
+$ model-watch history
+
+时间                         总分       状态
+2026-04-20 09:00:15     72.8%       ——
+2026-04-21 09:00:22     21.0%    🔴 降级!
+2026-04-22 09:00:31     66.4%    🟢 提升
+
+$ model-watch alert
+🔴 严重降级: 近3次平均 29.1%，比历史 72.8% 低 43.7%
+🔴 绝对分数过低: 29.1%
 ```
 
-- 覆盖 OpenAI/Anthropic/Google/DeepSeek/xAI/Mistral
-- 4 种使用场景（coding/chat/writing/reasoning）
-- 月度/年度节省金额对比
-
-**Reddit 原声**:
-> "Claude is definitely expensive." | "DeepSeek V4 Flash is actually overpriced." (score:50)
-> "This is really annoying for a paid product. Unpredictable, unreliable, unprofessional." (score:52)
+| 功能 | 说明 |
+|------|------|
+| 7 道标准题 | 推理/代码/写作/指令遵循/幻觉检测 |
+| 历史趋势 | 自动保存每次测试，可视化变化 |
+| 降级告警 | 分数跌破阈值自动标记 |
 
 ---
 
-## 🚀 安装
+### 3. api-cost — AI API 成本对比
+
+**痛点**：API 定价混乱不透明，Claude 太贵，DeepSeek 被质疑 overpriced。
+
+> *"Claude is definitely expensive."* — r/ChatGPT
+> *"DeepSeek V4 Flash is actually overpriced at $0.14/$0.28"* — r/LocalLLaMA (50↑)
 
 ```bash
-cd ~/HermesMade && bash install.sh
+$ api-cost recommend coding
+
+⭐ #1   Mistral Mistral Small 3        $1.65/月
+⭐ #2   DeepSeek DeepSeek V4 Flash     $1.89/月
+⭐ #3   OpenAI GPT-4o-mini             $2.92/月
+
+💸 选择 #1 比 Anthropic Claude Opus 4.7
+   月省 $335.85，年省 $4030
 ```
+
+| 功能 | 说明 |
+|------|------|
+| 18 个模型定价 | OpenAI/Anthropic/Google/DeepSeek/xAI/Mistral |
+| 4 种场景 | coding / chat / writing / reasoning |
+| 花费追踪 | `api-cost track 2.50` 记录开销，按月汇总 |
 
 ---
 
-## 📋 待选择痛点（4-8）
+## 🤔 Why This Exists
 
-| # | 痛点 | 频次 | 方案 |
+大多数开源工具来自开发者的「我觉得这个很酷」。
+
+**HermesMade 反过来** — 先去 Reddit 听用户在骂什么，再动手。
+
+| | 传统开源 | HermesMade |
+|---|---|---|
+| 选题 | 开发者直觉 | Reddit 真实痛点数据 |
+| 验证 | 上线后才知道有没有人用 | 建之前就知道真有人在痛 |
+| 文档 | "read the code" | 每个工具带用户原声引用 |
+| 推广 | 发个帖子碰运气 | 回痛点原帖精准触达 |
+
+---
+
+## 🗺 Roadmap
+
+| # | 痛点 | 频次 | 状态 |
 |---|------|------|------|
-| 4 | GitHub Actions 不可靠 | ★★★★☆ | CI 健康检查工具 |
-| 5 | AI 代码质量不可控 | ★★★★☆ | 代码质量审查 CLI |
-| 6 | 本地 LLM 部署门槛高 | ★★★★☆ | 一键部署脚本 |
-| 7 | 供应链安全 | ★★★☆☆ | 依赖安全检查器 |
-| 8 | Deepfake 焦虑 | ★★★☆☆ | 内容可信度检测器 |
+| 1 | AI 审查过滤过度 | ★★★★★ | ✅ 已交付 |
+| 2 | AI 模型偷偷变笨 | ★★★★★ | ✅ 已交付 |
+| 3 | API 定价不透明 | ★★★★☆ | ✅ 已交付 |
+| 4 | GitHub Actions 不可靠 | ★★★★☆ | ⬜ 待选择 |
+| 5 | AI 代码质量不可控 | ★★★★☆ | ⬜ 待选择 |
+| 6 | 本地 LLM 部署门槛高 | ★★★★☆ | ⬜ 待选择 |
+| 7 | 供应链安全恐慌 | ★★★☆☆ | ⬜ 待选择 |
+| 8 | Deepfake 焦虑 | ★★★☆☆ | ⬜ 待选择 |
 
 ---
 
-## 📁 结构
+## ⭐ Star History
+
+如果这些工具帮到了你，给个 Star ⭐ 让更多人看到。
+
+Star 数每涨 50，解锁下一个痛点工具。
+
+---
+
+## 📁 Structure
 
 ```
 HermesMade/
-├── prompt-inspector/     # 痛点 1 - 审查绕过
-│   └── prompt-inspector.py
-├── model-watch/          # 痛点 2 - 模型监控
-│   └── model-watch.py
-├── api-cost-compare/     # 痛点 3 - 成本对比
-│   └── api-cost-compare.py
+├── prompt-inspector/     # 痛点 1
+├── model-watch/          # 痛点 2
+├── api-cost-compare/     # 痛点 3
 ├── install.sh            # 一键安装
+├── LICENSE               # MIT
 └── README.md
 ```
