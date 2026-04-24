@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-API Cost Compare — AI API 成本对比与优化工具。
-实时对比主流模型定价，按使用场景推荐最优方案，跟踪用量。
+API Cost Compare — Compare AI API pricing across 18 models and optimize costs.
+Find the cheapest model for your use case, track spending over time.
 
-用法:
-  api-cost list                  # 列出所有模型定价
-  api-cost compare               # 交互式对比
-  api-cost recommend coding      # 按场景推荐 (coding/writing/reasoning/chat)
-  api-cost track $0.50           # 记录本次花费
+Usage:
+  api-cost list                  # list all model pricing
+  api-cost recommend coding      # recommend per scenario (coding/chat/writing/reasoning)
+  api-cost track 2.50 openai     # log a spend
+  api-cost report                # spending summary
 
-来源: Reddit 痛点 #3 — AI API定价过高/成本不透明
-仓库: github.com/minirr890112-byte/HermesMade
+Source: Reddit pain #3 — AI API pricing opaque and expensive
+Repo: github.com/minirr890112-byte/HermesMade
 """
 
 import json, os, sys, time
@@ -18,8 +18,7 @@ from datetime import datetime
 
 DATA_FILE = os.path.expanduser("~/.hermes/api-cost-tracker.json")
 
-# ── 实时定价数据（2026年4月，定期更新）──
-# 格式: provider, model, input/1M tokens, output/1M tokens, context_len
+# ── Live pricing data (April 2026) ──
 PRICING = [
     # OpenAI
     {"provider": "OpenAI", "model": "GPT-4o", "input_cost": 2.50, "output_cost": 10.00, "context": 128000, "tags": ["chat", "coding", "writing", "reasoning"]},
@@ -53,7 +52,7 @@ PRICING = [
     {"provider": "Mistral", "model": "Mistral Small 3", "input_cost": 0.10, "output_cost": 0.30, "context": 128000, "tags": ["chat", "coding"]},
 ]
 
-# ── 典型使用场景的 token 消耗估算 ──
+# ── Typical scenario token estimates ──
 SCENARIOS = {
     "coding":     {"input_tokens": 5000, "output_tokens": 2000, "requests_per_day": 50},
     "chat":       {"input_tokens": 500,  "output_tokens": 500,  "requests_per_day": 100},
@@ -74,7 +73,7 @@ def monthly_cost(model: dict, scenario: dict) -> float:
 
 def list_all():
     print("=" * 80)
-    print("  API Cost Compare — 主流 AI API 定价 (2026.04)")
+    print("  API Cost Compare — AI API Pricing (April 2026)")
     print("=" * 80)
     print(f"{'Provider':<14} {'Model':<22} {'Input/1M':>8} {'Output/1M':>10} {'Context':>10}")
     print("-" * 70)
@@ -83,13 +82,13 @@ def list_all():
         print(f"{p['provider']:<14} {p['model']:<22} ${p['input_cost']:>7.2f} ${p['output_cost']:>9.2f} {p['context']:>9,}")
 
     print("-" * 70)
-    print("💡 用 'api-cost recommend <scenario>' 按场景推荐最优方案")
+    print("💡 Use 'api-cost recommend <scenario>' for personalized recommendations")
 
 
 def recommend(scenario_name: str = None):
     if scenario_name not in SCENARIOS:
-        print(f"可用场景: {', '.join(SCENARIOS.keys())}")
-        print("用法: api-cost recommend coding")
+        print(f"Available scenarios: {', '.join(SCENARIOS.keys())}")
+        print("Usage: api-cost recommend coding")
         return
 
     scenario = SCENARIOS[scenario_name]
@@ -108,11 +107,11 @@ def recommend(scenario_name: str = None):
     results.sort(key=lambda x: x["monthly"])
 
     print(f"\n{'='*70}")
-    print(f"  场景: {scenario_name}")
-    print(f"  估算: {scenario['input_tokens']:,} input / {scenario['output_tokens']:,} output tokens/次")
-    print(f"  频率: {scenario['requests_per_day']} 次/天")
+    print(f"  Scenario: {scenario_name}")
+    print(f"  Est: {scenario['input_tokens']:,} input / {scenario['output_tokens']:,} output tokens/request")
+    print(f"  Volume: {scenario['requests_per_day']} requests/day")
     print(f"{'='*70}")
-    print(f"{'排名':<6} {'模型':<40} {'日费用':>8} {'月费用':>8}")
+    print(f"{'Rank':<6} {'Model':<40} {'Daily':>8} {'Monthly':>8}")
     print("-" * 66)
 
     for i, r in enumerate(results[:10], 1):
@@ -121,18 +120,16 @@ def recommend(scenario_name: str = None):
 
     print("-" * 66)
 
-    # 对比
     if len(results) >= 2:
         cheapest = results[0]
         expensive = results[-1]
         savings = expensive["monthly"] - cheapest["monthly"]
-        print(f"\n💸 选择 {cheapest['model']} 比 {expensive['model']}")
-        print(f"   月省 ${savings:.2f}，年省 ${savings*12:.2f}")
-        print(f"   节省 {(savings/expensive['monthly']*100):.0f}%")
+        print(f"\n💸 Choosing {cheapest['model']} over {expensive['model']}")
+        print(f"   Saves ${savings:.2f}/month, ${savings*12:.2f}/year")
+        print(f"   That's {(savings/expensive['monthly']*100):.0f}% cheaper")
 
 
 def compare_two(model1_idx: int, model2_idx: int, scenario_name: str):
-    """对比两个模型"""
     if scenario_name not in SCENARIOS:
         scenario_name = "chat"
     scenario = SCENARIOS[scenario_name]
@@ -141,27 +138,26 @@ def compare_two(model1_idx: int, model2_idx: int, scenario_name: str):
     m2 = PRICING[model2_idx] if 0 <= model2_idx < len(PRICING) else None
 
     if not m1 or not m2:
-        print("先运行 'api-cost list' 查看模型索引")
+        print("Run 'api-cost list' first to see model indices")
         return
 
     d1, m1_cost = daily_cost(m1, scenario), monthly_cost(m1, scenario)
     d2, m2_cost = daily_cost(m2, scenario), monthly_cost(m2, scenario)
 
-    print(f"\n对比: {m1['provider']} {m1['model']} vs {m2['provider']} {m2['model']}")
-    print(f"场景: {scenario_name} ({scenario['requests_per_day']}次/天)")
+    print(f"\nComparison: {m1['provider']} {m1['model']} vs {m2['provider']} {m2['model']}")
+    print(f"Scenario: {scenario_name} ({scenario['requests_per_day']} req/day)")
     print(f"{'':>30} {'Model 1':>15} {'Model 2':>15}")
-    print(f"{'日费用':>30} ${d1:>14.2f} ${d2:>14.2f}")
-    print(f"{'月费用':>30} ${m1_cost:>14.2f} ${m2_cost:>14.2f}")
-    print(f"{'年费用':>30} ${m1_cost*12:>14.2f} ${m2_cost*12:>14.2f}")
+    print(f"{'Daily cost':>30} ${d1:>14.2f} ${d2:>14.2f}")
+    print(f"{'Monthly cost':>30} ${m1_cost:>14.2f} ${m2_cost:>14.2f}")
+    print(f"{'Yearly cost':>30} ${m1_cost*12:>14.2f} ${m2_cost*12:>14.2f}")
     diff = m1_cost - m2_cost
     if diff > 0:
-        print(f"\n💰 Model 2 月省 ${diff:.2f}")
+        print(f"\n💰 Model 2 saves ${diff:.2f}/month")
     else:
-        print(f"\n💰 Model 1 月省 ${-diff:.2f}")
+        print(f"\n💰 Model 1 saves ${-diff:.2f}/month")
 
 
 def track_spending(amount: float, provider: str = "", model: str = ""):
-    """记录花费"""
     records = []
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE) as f:
@@ -182,14 +178,14 @@ def track_spending(amount: float, provider: str = "", model: str = ""):
     this_month = sum(r["amount"] for r in records
                      if r["date"][:7] == datetime.now().isoformat()[:7])
 
-    print(f"✅ 记录: ${amount:.2f}")
-    print(f"   本月: ${this_month:.2f}")
-    print(f"   累计: ${total:.2f}")
+    print(f"✅ Logged: ${amount:.2f}")
+    print(f"   This month: ${this_month:.2f}")
+    print(f"   All time: ${total:.2f}")
 
 
 def spending_report():
     if not os.path.exists(DATA_FILE):
-        print("暂无花费记录。用 'api-cost track <金额>' 记录")
+        print("No spending records yet. Use 'api-cost track <amount>' to log.")
         return
 
     with open(DATA_FILE) as f:
@@ -201,9 +197,9 @@ def spending_report():
         month = r["date"][:7]
         monthly[month] = monthly.get(month, 0) + r["amount"]
 
-    print(f"\n📊 花费报告")
-    print(f"累计: ${total:.2f} | 记录: {len(records)} 条")
-    print(f"{'月份':<10} {'金额':>10}")
+    print(f"\n📊 Spending Report")
+    print(f"All time: ${total:.2f} | Entries: {len(records)}")
+    print(f"{'Month':<10} {'Amount':>10}")
     for m in sorted(monthly.keys()):
         bar = "█" * int(monthly[m] * 2)
         print(f"{m:<10} ${monthly[m]:>8.2f}  {bar}")
@@ -218,22 +214,22 @@ def main():
     elif cmd == "recommend":
         scenario = sys.argv[2] if len(sys.argv) > 2 else None
         if not scenario:
-            print("用法: api-cost recommend <scenario>")
-            print(f"场景: {', '.join(SCENARIOS.keys())}")
+            print("Usage: api-cost recommend <scenario>")
+            print(f"Scenarios: {', '.join(SCENARIOS.keys())}")
         else:
             recommend(scenario)
 
     elif cmd == "compare":
         if len(sys.argv) < 4:
-            print("用法: api-cost compare <idx1> <idx2> [scenario]")
-            print("先用 'api-cost list' 查看索引")
+            print("Usage: api-cost compare <idx1> <idx2> [scenario]")
+            print("Run 'api-cost list' first to see indices")
         else:
             compare_two(int(sys.argv[2]), int(sys.argv[3]),
                        sys.argv[4] if len(sys.argv) > 4 else "chat")
 
     elif cmd == "track":
         if len(sys.argv) < 3:
-            print("用法: api-cost track <金额> [provider] [model]")
+            print("Usage: api-cost track <amount> [provider] [model]")
         else:
             amount = float(sys.argv[2])
             provider = sys.argv[3] if len(sys.argv) > 3 else ""
@@ -244,22 +240,22 @@ def main():
         spending_report()
 
     elif cmd == "scenarios":
-        print("可用场景及估算参数:")
+        print("Available scenarios and estimates:")
         for name, params in SCENARIOS.items():
-            print(f"  {name}: {params['input_tokens']:,} in / {params['output_tokens']:,} out × {params['requests_per_day']}次/天")
+            print(f"  {name}: {params['input_tokens']:,} in / {params['output_tokens']:,} out × {params['requests_per_day']} req/day")
 
     else:
-        print("API Cost Compare — AI API 成本对比与优化")
+        print("API Cost Compare — AI API Cost Optimizer")
         print("")
-        print("命令:")
-        print("  list              列出所有模型定价")
-        print("  recommend <场景>   按场景推荐最优模型")
-        print("  compare <i1> <i2>  对比两个模型")
-        print("  track <金额>       记录花费")
-        print("  report             花费报告")
-        print("  scenarios          查看场景参数")
+        print("Commands:")
+        print("  list              List all 18 models with pricing")
+        print("  recommend <scenario>  Recommend cheapest for your use case")
+        print("  compare <i1> <i2> Compare two specific models")
+        print("  track <amount>    Log a spending entry")
+        print("  report            View spending summary")
+        print("  scenarios         Show scenario parameters")
         print("")
-        print("示例:")
+        print("Examples:")
         print("  api-cost recommend coding")
         print("  api-cost track 2.50 openai gpt-4o")
 

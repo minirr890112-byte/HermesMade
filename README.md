@@ -9,9 +9,9 @@
 
 **Every tool in this repo solves a real problem real people are screaming about on Reddit — right now.**
 
-> 数据驱动：扫描 6 个科技/AI subreddit → 343 条疼痛信号 → 8 个痛点 → 构建工具
+> Data-driven: scanned 6 AI/tech subreddits → 343 pain signals → 8 pain points → built tools
 >
-> 📊 [飞书多维表格：完整痛点清单](https://cww5wjw5vx4.feishu.cn/base/FcHpbXLeLa4OEPsy0TFceLzfn2z)
+> 📊 [Feishu Bitable: full pain-point inventory](https://cww5wjw5vx4.feishu.cn/base/FcHpbXLeLa4OEPsy0TFceLzfn2z)
 
 ---
 
@@ -38,35 +38,35 @@ Each tool installs as a standalone CLI: `prompt-inspector` | `model-watch` | `ap
 
 ## 🛠 Tools
 
-### 1. prompt-inspector — AI 审查风险分析
+### 1. prompt-inspector — AI Censorship Risk Analyzer
 
-**痛点**：ChatGPT/Claude 的审查过滤器越来越激进，连园艺问题都被拒绝。
+**Pain**: ChatGPT/Claude safety filters are getting insanely aggressive. Even gardening questions get blocked.
 
 > *"I literally couldn't get an answer to a gardening question due to supposed 'violence'... Your filter thought my gardening pitchfork was a sign of satanism."* — r/ChatGPT (26↑)
 
 ```bash
 $ prompt-inspector "write a story about a dictator who uses propaganda"
 
-🟢 低风险 — 有可能通过，但建议改写
-检测到 4 个触发词 (dictator, regime, propaganda, assassinate)
+🟢 LOW RISK — likely passes, but rewrites recommended
+Detected 4 trigger words (dictator, regime, propaganda, assassinate)
 
-📝 推荐改写前缀：
+📝 Recommended prefix:
   "For academic research and educational purposes..."
 
-🔓 终极方案：本地无审查模型预设 (gemma/deepseek/llama)
+🔓 Uncensored local LLM presets (gemma/deepseek/llama)
 ```
 
-| 功能 | 说明 |
-|------|------|
-| 6 类触发词扫描 | 暴力/自伤/成人/政治/宗教/毒品 |
-| 改写建议 | 学术前缀、假设框架、技术化改写 |
-| 无审查预设 | gemma/deepseek/llama system prompt 一键复制 |
+| Feature | Description |
+|---------|-------------|
+| 6 trigger categories | violence, self-harm, adult, politics, religion, drugs |
+| Rewrite strategies | academic prefix, hypothetical framing, technical reframing |
+| Uncensored presets | ready-to-copy system prompts for Gemma, DeepSeek, Llama |
 
 ---
 
-### 2. model-watch — AI 模型质量监控
+### 2. model-watch — AI Model Quality Watchdog
 
-**痛点**：API 模型偷偷变笨，Anthropic 官方承认降级，用户却无从验证。
+**Pain**: API models silently get dumber. Anthropic admitted to degradation. Users have no way to verify.
 
 > *"Opus 4.7 was hallucinating a lot today... shocking to see such degradation"* — r/ClaudeAI (49↑)
 > *"Anthropic admits to have made hosted models more stupid"* — r/LocalLLaMA (281↑)
@@ -74,27 +74,27 @@ $ prompt-inspector "write a story about a dictator who uses propaganda"
 ```bash
 $ model-watch history
 
-时间                         总分       状态
-2026-04-20 09:00:15     72.8%       ——
-2026-04-21 09:00:22     21.0%    🔴 降级!
-2026-04-22 09:00:31     66.4%    🟢 提升
+Timestamp            Score    Status
+2026-04-20 09:00    72.8%    ——
+2026-04-21 09:00    21.0%    🔴 DEGRADED!
+2026-04-22 09:00    66.4%    🟢 Recovered
 
 $ model-watch alert
-🔴 严重降级: 近3次平均 29.1%，比历史 72.8% 低 43.7%
-🔴 绝对分数过低: 29.1%
+🔴 Severe degradation: recent 3 avg 29.1% vs historical 72.8% (-43.7%)
+🔴 Absolute score critical: 29.1%
 ```
 
-| 功能 | 说明 |
-|------|------|
-| 7 道标准题 | 推理/代码/写作/指令遵循/幻觉检测 |
-| 历史趋势 | 自动保存每次测试，可视化变化 |
-| 降级告警 | 分数跌破阈值自动标记 |
+| Feature | Description |
+|---------|-------------|
+| 7 standardized tests | reasoning, coding, writing, instruction following, hallucination |
+| Trend tracking | automatic score history with visual diff |
+| Degradation alerts | flags drops >10% vs historical baseline |
 
 ---
 
-### 3. api-cost — AI API 成本对比
+### 3. api-cost — AI API Cost Optimizer
 
-**痛点**：API 定价混乱不透明，Claude 太贵，DeepSeek 被质疑 overpriced。
+**Pain**: API pricing is opaque and confusing. Claude is expensive. DeepSeek questioned as overpriced.
 
 > *"Claude is definitely expensive."* — r/ChatGPT
 > *"DeepSeek V4 Flash is actually overpriced at $0.14/$0.28"* — r/LocalLLaMA (50↑)
@@ -102,57 +102,56 @@ $ model-watch alert
 ```bash
 $ api-cost recommend coding
 
-⭐ #1   Mistral Mistral Small 3        $1.65/月
-⭐ #2   DeepSeek DeepSeek V4 Flash     $1.89/月
-⭐ #3   OpenAI GPT-4o-mini             $2.92/月
+⭐ #1   Mistral Mistral Small 3        $1.65/mo
+⭐ #2   DeepSeek DeepSeek V4 Flash     $1.89/mo
+⭐ #3   OpenAI GPT-4o-mini             $2.92/mo
 
-💸 选择 #1 比 Anthropic Claude Opus 4.7
-   月省 $335.85，年省 $4030
+💸 Picking #1 over Claude Opus 4.7 saves $335.85/mo ($4,030/yr)
 ```
 
-| 功能 | 说明 |
-|------|------|
-| 18 个模型定价 | OpenAI/Anthropic/Google/DeepSeek/xAI/Mistral |
-| 4 种场景 | coding / chat / writing / reasoning |
-| 花费追踪 | `api-cost track 2.50` 记录开销，按月汇总 |
+| Feature | Description |
+|---------|-------------|
+| 18 models priced | OpenAI, Anthropic, Google, DeepSeek, xAI, Mistral |
+| 4 usage scenarios | coding, chat, writing, reasoning |
+| Spending tracker | `api-cost track 2.50` to log & summarize costs |
 
 ---
 
 ## 🤔 Why This Exists
 
-大多数开源工具来自开发者的「我觉得这个很酷」。
+Most open-source tools come from a developer thinking "this would be cool."
 
-**HermesMade 反过来** — 先去 Reddit 听用户在骂什么，再动手。
+**HermesMade flips that** — go to Reddit first, listen to what people are actually complaining about, then build.
 
-| | 传统开源 | HermesMade |
+| | Traditional OSS | HermesMade |
 |---|---|---|
-| 选题 | 开发者直觉 | Reddit 真实痛点数据 |
-| 验证 | 上线后才知道有没有人用 | 建之前就知道真有人在痛 |
-| 文档 | "read the code" | 每个工具带用户原声引用 |
-| 推广 | 发个帖子碰运气 | 回痛点原帖精准触达 |
+| Ideation | Developer intuition | Reddit pain-point data |
+| Validation | Ship first, see if anyone cares | Know people are hurting before you build |
+| Docs | "read the code" | Every tool cites the Reddit quote that inspired it |
+| Promotion | Post and hope | Reply in the exact pain threads where users are |
 
 ---
 
 ## 🗺 Roadmap
 
-| # | 痛点 | 频次 | 状态 |
-|---|------|------|------|
-| 1 | AI 审查过滤过度 | ★★★★★ | ✅ 已交付 |
-| 2 | AI 模型偷偷变笨 | ★★★★★ | ✅ 已交付 |
-| 3 | API 定价不透明 | ★★★★☆ | ✅ 已交付 |
-| 4 | GitHub Actions 不可靠 | ★★★★☆ | ⬜ 待选择 |
-| 5 | AI 代码质量不可控 | ★★★★☆ | ⬜ 待选择 |
-| 6 | 本地 LLM 部署门槛高 | ★★★★☆ | ⬜ 待选择 |
-| 7 | 供应链安全恐慌 | ★★★☆☆ | ⬜ 待选择 |
-| 8 | Deepfake 焦虑 | ★★★☆☆ | ⬜ 待选择 |
+| # | Pain Point | Frequency | Status |
+|---|-----------|-----------|--------|
+| 1 | AI censorship overreach | ★★★★★ | ✅ Shipped |
+| 2 | AI models silently degrading | ★★★★★ | ✅ Shipped |
+| 3 | Opaque API pricing | ★★★★☆ | ✅ Shipped |
+| 4 | GitHub Actions unreliable | ★★★★☆ | ⬜ Up next |
+| 5 | AI-generated code quality | ★★★★☆ | ⬜ Up next |
+| 6 | Local LLM setup too hard | ★★★★☆ | ⬜ Up next |
+| 7 | Supply chain security fear | ★★★☆☆ | ⬜ Planned |
+| 8 | Deepfake detection anxiety | ★★★☆☆ | ⬜ Planned |
 
 ---
 
 ## ⭐ Star History
 
-如果这些工具帮到了你，给个 Star ⭐ 让更多人看到。
+If these tools help you, drop a ⭐ so others find them.
 
-Star 数每涨 50，解锁下一个痛点工具。
+Every 50 stars unlocks the next pain-point tool.
 
 ---
 
@@ -160,10 +159,11 @@ Star 数每涨 50，解锁下一个痛点工具。
 
 ```
 HermesMade/
-├── prompt-inspector/     # 痛点 1
-├── model-watch/          # 痛点 2
-├── api-cost-compare/     # 痛点 3
-├── install.sh            # 一键安装
+├── prompt-inspector/     # Pain #1 — censorship risk analyzer
+├── model-watch/          # Pain #2 — model quality watchdog
+├── api-cost-compare/     # Pain #3 — API cost optimizer
+├── install.sh            # one-command installer
 ├── LICENSE               # MIT
+├── PROMOTION.md          # star-growth strategy
 └── README.md
 ```

@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-Model Watch — AI模型基准测试与质量监控。
-检测模型降级（偷偷变笨），记录历史趋势，可推送飞书告警。
+Model Watch — Benchmark AI models and detect quality degradation.
+Runs 7 standardized tests, tracks scores over time, fires alerts when models get dumber.
 
-用法:
-  model-watch run              # 运行一次基准测试
-  model-watch history          # 查看历史趋势
-  model-watch alert            # 检查是否有模型质量下降
-  model-watch serve            # 启动定时监控 (cron mode)
+Usage:
+  model-watch demo              # show benchmark questions
+  model-watch submit '{"...":"..."}'  # submit model outputs
+  model-watch history           # view score trend
+  model-watch alert             # check for degradation
+  model-watch serve             # show cron setup instructions
 
-来源: Reddit 痛点 #2 — AI模型降级/偷偷变笨
-仓库: github.com/minirr890112-byte/HermesMade
+Source: Reddit pain #2 — AI models silently degrading
+Repo: github.com/minirr890112-byte/HermesMade
 """
 
 import json, os, time, sys
@@ -18,8 +19,6 @@ from datetime import datetime
 
 DATA_FILE = os.path.expanduser("~/.hermes/model-watch-history.json")
 
-# ── 基准测试题目 ──
-# 覆盖：推理、代码、写作、指令遵循
 BENCHMARKS = [
     {
         "id": "reasoning_1",
@@ -53,7 +52,7 @@ BENCHMARKS = [
         "id": "writing_1",
         "category": "writing",
         "prompt": "Write a 3-sentence product description for a smartphone. Make it compelling but factual. No buzzwords like 'revolutionary' or 'game-changing'.",
-        "expected_keywords": [],  # evaluated by structure
+        "expected_keywords": [],
         "weight": 1.0,
     },
     {
@@ -94,7 +93,6 @@ def save_history(history: list):
 
 
 def score_response(benchmark: dict, response: str) -> float:
-    """评分：0.0-1.0"""
     response_lower = response.lower()
     score = 0.0
     max_score = len(benchmark["expected_keywords"]) if benchmark["expected_keywords"] else 3
@@ -105,7 +103,6 @@ def score_response(benchmark: dict, response: str) -> float:
         if kw.lower() in response_lower:
             score += 1.0
 
-    # 基础质量检查
     if len(response) < 10:
         score -= 1
     if len(response) > 50:
@@ -115,11 +112,11 @@ def score_response(benchmark: dict, response: str) -> float:
 
 
 def run_benchmarks(model_outputs: dict = None) -> dict:
-    """运行基准测试。model_outputs: {benchmark_id: response_text}"""
     if model_outputs is None:
-        print("❌ 需要提供模型输出。用法示例:")
-        print("  先用 API 获取每个 benchmark 的回复，然后传入此函数。")
-        print("  或使用 --demo 查看基准测试题目。")
+        print("❌ Model outputs required. Usage:")
+        print("  Run each benchmark through your AI API, then:")
+        print("  model-watch submit '<json_outputs>'")
+        print("  Use 'model-watch demo' to see benchmark questions first.")
         sys.exit(1)
 
     results = {}
@@ -153,17 +150,16 @@ def run_benchmarks(model_outputs: dict = None) -> dict:
 
 
 def show_history():
-    """展示历史趋势"""
     history = load_history()
     if not history:
-        print("📭 暂无测试数据。先运行 model-watch run")
+        print("📭 No data yet. Run 'model-watch submit' first.")
         return
 
     print("=" * 60)
-    print("  Model Watch — 模型质量趋势")
+    print("  Model Watch — Quality Trend")
     print("=" * 60)
-    print(f"{'时间':<22} {'总分':>6} {'状态':>8}")
-    print("-" * 40)
+    print(f"{'Timestamp':<22} {'Score':>6} {'Status':>10}")
+    print("-" * 42)
 
     scores = []
     for i, entry in enumerate(history):
@@ -175,40 +171,38 @@ def show_history():
             prev = history[i - 1]["overall_score"]
             diff = sc - prev
             if diff < -10:
-                status = "🔴 降级!"
+                status = "🔴 DEGRADED"
             elif diff < -5:
-                status = "🟡 下降"
+                status = "🟡 Dropped"
             elif diff > 5:
-                status = "🟢 提升"
+                status = "🟢 Improved"
             else:
-                status = "➡ 稳定"
+                status = "➡ Stable"
         else:
             status = "——"
 
-        print(f"{ts:<22} {sc:>5.1f}% {status:>8}")
+        print(f"{ts:<22} {sc:>5.1f}% {status:>10}")
 
-    print("-" * 40)
+    print("-" * 42)
     if len(scores) >= 2:
         trend = scores[-1] - scores[-2]
-        print(f"最近变化: {trend:+.1f}%")
+        print(f"Latest change: {trend:+.1f}%")
         avg = sum(scores) / len(scores)
-        print(f"历史均值: {avg:.1f}%")
-        print(f"最新得分: {scores[-1]:.1f}%")
+        print(f"Historical avg: {avg:.1f}%")
+        print(f"Latest score: {scores[-1]:.1f}%")
 
-    # 检查是否显著下降
     if len(scores) >= 3:
         recent_avg = sum(scores[-3:]) / 3
         older_avg = sum(scores[:-3]) / max(1, len(scores) - 3)
         drop = older_avg - recent_avg
         if drop > 10:
-            print(f"\n⚠️ 警告: 近3次平均比历史低 {drop:.1f}%，可能模型降级！")
+            print(f"\n⚠ WARNING: Recent 3 avg {drop:.1f}% below historical. Possible model degradation!")
 
 
 def check_alert() -> dict:
-    """检查是否需要告警"""
     history = load_history()
     if len(history) < 3:
-        return {"alert": False, "reason": "数据不足（至少需要3次测试）"}
+        return {"alert": False, "reason": "Insufficient data (need at least 3 runs)"}
 
     recent = [h["overall_score"] for h in history[-3:]]
     older = [h["overall_score"] for h in history[:-3]]
@@ -219,12 +213,12 @@ def check_alert() -> dict:
 
     alerts = []
     if drop > 15:
-        alerts.append(f"🔴 严重降级: 近3次平均 {recent_avg:.1f}%，比历史 {older_avg:.1f}% 低 {drop:.1f}%")
+        alerts.append(f"🔴 Severe: recent 3 avg {recent_avg:.1f}% vs historical {older_avg:.1f}% (-{drop:.1f}%)")
     elif drop > 10:
-        alerts.append(f"🟡 可能降级: 近3次平均 {recent_avg:.1f}%，比历史 {older_avg:.1f}% 低 {drop:.1f}%")
+        alerts.append(f"🟡 Warning: recent 3 avg {recent_avg:.1f}% vs historical {older_avg:.1f}% (-{drop:.1f}%)")
 
     if recent_avg < 50:
-        alerts.append(f"🔴 绝对分数过低: {recent_avg:.1f}%")
+        alerts.append(f"🔴 Absolute score critical: {recent_avg:.1f}%")
 
     return {
         "alert": len(alerts) > 0,
@@ -236,42 +230,43 @@ def check_alert() -> dict:
 
 
 def show_benchmarks():
-    """展示基准测试题目"""
     print("=" * 60)
-    print("  Model Watch — 基准测试题目")
+    print("  Model Watch — Benchmark Questions")
     print("=" * 60)
     for b in BENCHMARKS:
-        print(f"\n[{b['id']}] {b['category']} (权重:{b['weight']})")
+        print(f"\n[{b['id']}] {b['category']} (weight:{b['weight']})")
         print(f"  {b['prompt'][:120]}...")
         if b["expected_keywords"]:
-            print(f"  期望关键词: {', '.join(b['expected_keywords'])}")
+            print(f"  Expected keywords: {', '.join(b['expected_keywords'])}")
 
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "help"
 
     if cmd == "run":
-        print("📊 Model Watch — 运行基准测试")
+        print("📊 Model Watch — Run Benchmarks")
         print("=" * 40)
-        print("此工具需要你提供模型对各题目的回复。")
+        print("This tool needs model outputs from your AI API.")
         print("")
-        print("用法：先用你的 AI API 获取回复，然后：")
+        print("Step 1: View questions")
+        print("  model-watch demo")
+        print("")
+        print("Step 2: Run each question through your model")
+        print("Step 3: Submit results")
         print("  model-watch submit '{\"reasoning_1\": \"...\", \"coding_1\": \"...\"}'")
         print("")
-        print("先看看题目：")
-        show_benchmarks()
 
     elif cmd == "demo" or cmd == "benchmarks":
         show_benchmarks()
 
     elif cmd == "submit":
         if len(sys.argv) < 3:
-            print("用法: model-watch submit '<json_outputs>'")
+            print("Usage: model-watch submit '<json_outputs>'")
             sys.exit(1)
         outputs = json.loads(sys.argv[2])
         result = run_benchmarks(outputs)
-        print(f"✅ 测试完成。总分: {result['overall_score']}%")
-        print(f"详情已保存到 {DATA_FILE}")
+        print(f"✅ Benchmark complete. Score: {result['overall_score']}%")
+        print(f"   Data saved to {DATA_FILE}")
 
     elif cmd == "history":
         show_history()
@@ -281,22 +276,25 @@ def main():
         print(json.dumps(result, indent=2, ensure_ascii=False))
 
     elif cmd == "serve":
-        print("🔄 Model Watch 定时监控模式")
-        print("建议通过 cronjob 设置定期运行:")
+        print("🔄 Model Watch — Scheduled Monitoring")
+        print("Set up a cron job to run periodically:")
+        print("  model-watch alert  # returns JSON with alert status")
+        print("")
+        print("Example cron (runs daily at 9 AM):")
         print("  hermes cronjob create --name model-watch \\")
         print("    --schedule '0 9 * * *' \\")
-        print("    --prompt '运行 model-watch alert，如果有告警推送到飞书'")
+        print("    --prompt 'Run model-watch alert. If alert fires, notify me.'")
 
     else:
-        print("Model Watch — AI模型质量监控")
+        print("Model Watch — AI Model Quality Monitor")
         print("")
-        print("命令:")
-        print("  demo        查看基准测试题目")
-        print("  run         交互式运行测试")
-        print("  submit JSON 提交模型输出")
-        print("  history     查看历史趋势")
-        print("  alert       检查告警")
-        print("  serve       显示定时监控设置")
+        print("Commands:")
+        print("  demo        Show benchmark questions")
+        print("  run         Interactive benchmark guide")
+        print("  submit JSON Submit model outputs for scoring")
+        print("  history     View score trend")
+        print("  alert       Check for degradation")
+        print("  serve       Show cron setup instructions")
 
 
 if __name__ == "__main__":
