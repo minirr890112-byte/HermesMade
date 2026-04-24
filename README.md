@@ -15,14 +15,24 @@
 
 ---
 
-## ⚡ Quick Install
+## ⚡ Install
+
+### All tools at once
 
 ```bash
 git clone https://github.com/minirr890112-byte/HermesMade.git
 cd HermesMade && bash install.sh
 ```
 
-3 个工具立即可用：`prompt-inspector` | `model-watch` | `api-cost`
+### Individual tools (pip)
+
+```bash
+pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory=prompt-inspector
+pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory=model-watch
+pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory=api-cost-compare
+```
+
+Each tool installs as a standalone CLI: `prompt-inspector` | `model-watch` | `api-cost`
 
 ---
 
