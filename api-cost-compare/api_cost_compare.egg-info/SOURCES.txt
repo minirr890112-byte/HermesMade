@@ -1,9 +1,0 @@
-README.md
-pyproject.toml
-api_cost_compare/__init__.py
-api_cost_compare/cli.py
-api_cost_compare.egg-info/PKG-INFO
-api_cost_compare.egg-info/SOURCES.txt
-api_cost_compare.egg-info/dependency_links.txt
-api_cost_compare.egg-info/entry_points.txt
-api_cost_compare.egg-info/top_level.txt
