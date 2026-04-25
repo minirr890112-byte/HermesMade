@@ -10,7 +10,10 @@ Usage:
 Repo: github.com/minirr890112-byte/HermesMade
 """
 
-import sys, re, json
+import sys, re, json, os
+from datetime import datetime
+
+DATA_FILE = os.path.expanduser("~/.hermes/task-cost-history.json")
 
 # ── Model database (shared with api-cost) ──
 MODELS = [
@@ -202,6 +205,28 @@ def rank_models(profile: dict, mode: str = "value") -> list:
     return results
 
 
+def load_lifetime() -> dict:
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE) as f:
+            return json.load(f)
+    return {"tasks": 0, "total_saved": 0.0, "would_have_cost": 0.0, "actually_spent": 0.0}
+
+def save_lifetime(best, expensive, task):
+    saved = max(0, expensive["cost"] - best["cost"])
+    data = load_lifetime()
+    data["tasks"] += 1
+    data["total_saved"] = round(data["total_saved"] + saved, 6)
+    data["would_have_cost"] = round(data["would_have_cost"] + expensive["cost"], 6)
+    data["actually_spent"] = round(data["actually_spent"] + best["cost"], 6)
+    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def reset_lifetime():
+    if os.path.exists(DATA_FILE):
+        os.remove(DATA_FILE)
+
+
 def format_output(task: str, profile: dict, rankings: list, mode: str = "value"):
     """Pretty-print the recommendation."""
     mode_labels = {"value": "Best Value (capability/$)", "quality": "Best Quality (capability first)", "balanced": "Balanced (60% cap + 40% cost)", "local": "Local vs API (includes open-weight models)"}
@@ -238,6 +263,22 @@ def format_output(task: str, profile: dict, rankings: list, mode: str = "value")
     print(f"     Cost per run: ${best['cost']:.4f}")
     print(f"     If you do this 20×/day: ${best['cost']*20:.2f}/day")
 
+    # Savings vs most expensive viable model (>80% cap match)
+    viable = [r for r in rankings if r["cap_match"] >= 0.8]
+    if len(viable) >= 2:
+        most_expensive = max(viable, key=lambda x: x["cost"])
+        saved_this_task = most_expensive["cost"] - best["cost"]
+        if saved_this_task > 0:
+            print(f"\n  💰 Saved this task: ${saved_this_task:.4f} (vs {most_expensive['provider']} {most_expensive['model']})")
+
+    # Lifetime Bonus
+    lifetime = load_lifetime()
+    if lifetime["tasks"] > 0:
+        print(f"\n  🎁 LIFETIME BONUS: ${lifetime['total_saved']:.4f} saved across {lifetime['tasks']} tasks")
+    if lifetime.get("would_have_cost"):
+        print(f"     Would have cost: ${lifetime['would_have_cost']:.4f}")
+        print(f"     Actually spent:  ${lifetime['actually_spent']:.4f}")
+
     # Cheapest option
     cheapest = min(rankings, key=lambda x: x["cost"])
     if cheapest["model"] != best["model"]:
@@ -268,6 +309,17 @@ def main():
             mode = "local"
         elif a == "--value":
             mode = "value"
+        elif a == "--reset-bonus":
+            reset_lifetime()
+            print("🎁 Lifetime bonus reset.")
+            return
+        elif a == "--bonus":
+            lifetime = load_lifetime()
+            print(f"🎁 LIFETIME BONUS: ${lifetime['total_saved']:.4f} saved across {lifetime['tasks']} tasks")
+            if lifetime.get("would_have_cost"):
+                print(f"   Would have cost: ${lifetime['would_have_cost']:.4f}")
+                print(f"   Actually spent:  ${lifetime['actually_spent']:.4f}")
+            return
         elif a in ("-h", "--help"):
             print("Usage: task-cost [--quality|--balanced|--local] 'task description'")
             print("")
@@ -293,6 +345,15 @@ def main():
     profile = profile_task(task)
     rankings = rank_models(profile, mode)
     format_output(task, profile, rankings, mode)
+
+    # Track lifetime savings
+    best = rankings[0]
+    viable = [r for r in rankings if r["cap_match"] >= 0.8]
+    if len(viable) >= 2:
+        expensive = max(viable, key=lambda x: x["cost"])
+    else:
+        expensive = max(rankings, key=lambda x: x["cost"])
+    save_lifetime(best, expensive, task)
 
 
 if __name__ == "__main__":
