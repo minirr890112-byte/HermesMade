@@ -227,8 +227,22 @@ def reset_lifetime():
         os.remove(DATA_FILE)
 
 
-def format_output(task: str, profile: dict, rankings: list, mode: str = "value"):
-    """Pretty-print the recommendation."""
+def format_output(task: str, profile: dict, rankings: list, mode: str = "value", quiet: bool = False):
+    """Pretty-print the recommendation. quiet=True → single line for agent use."""
+    best = rankings[0]
+    lifetime = load_lifetime()
+    
+    if quiet:
+        # Single line: ⭐ Model $cost (cap%) | variant | bonus
+        line = f"⭐ {best['provider']} {best['model']} ${best['cost']:.4f} ({best['cap_match']:.0%})"
+        cheapest = min(rankings, key=lambda x: x["cost"])
+        if cheapest["model"] != best["model"]:
+            line += f" | 💸 {cheapest['provider']} {cheapest['model']} ${cheapest['cost']:.4f}"
+        if lifetime["tasks"] > 0:
+            line += f" | 🎁 ${lifetime['total_saved']:.4f}/{lifetime['tasks']}t"
+        print(line)
+        return
+
     mode_labels = {"value": "Best Value (capability/$)", "quality": "Best Quality (capability first)", "balanced": "Balanced (60% cap + 40% cost)", "local": "Local vs API (includes open-weight models)"}
 
     print("=" * 60)
@@ -298,6 +312,7 @@ def main():
     # Parse flags
     args = sys.argv[1:]
     mode = "value"
+    quiet = False
     task_parts = []
 
     for a in args:
@@ -307,6 +322,8 @@ def main():
             mode = "balanced"
         elif a == "--local":
             mode = "local"
+        elif a in ("-q", "--quiet"):
+            quiet = True
         elif a == "--value":
             mode = "value"
         elif a == "--reset-bonus":
@@ -344,7 +361,7 @@ def main():
     task = " ".join(task_parts)
     profile = profile_task(task)
     rankings = rank_models(profile, mode)
-    format_output(task, profile, rankings, mode)
+    format_output(task, profile, rankings, mode, quiet)
 
     # Track lifetime savings
     best = rankings[0]
