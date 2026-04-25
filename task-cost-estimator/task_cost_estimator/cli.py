@@ -34,6 +34,20 @@ MODELS = [
     {"name": "Mistral Small 3",  "provider": "Mistral",  "in": 0.10,  "out": 0.30,  "reasoning": 4, "coding": 6, "writing": 5,  "instruction": 6,  "ctx": 128000},
 ]
 
+# ── Local / open-weight models (run on your hardware) ──
+# Cost: electricity ($0.12/kWh) + GPU amortization ($2000/3yr) → hourly rate
+# Token speed varies by model size and quantization
+LOCAL_MODELS = [
+    {"name": "Llama 3.1 8B (Q4)",     "provider": "Local", "in": 0.0, "out": 0.0, "reasoning": 5, "coding": 6, "writing": 6,  "instruction": 7,  "ctx": 8192,  "tokens_per_sec": 60, "cost_per_hour": 0.11},
+    {"name": "Qwen2.5 32B (Q4)",      "provider": "Local", "in": 0.0, "out": 0.0, "reasoning": 7, "coding": 8, "writing": 7,  "instruction": 8,  "ctx": 8192,  "tokens_per_sec": 25, "cost_per_hour": 0.18},
+    {"name": "DeepSeek R1 32B (Q4)",  "provider": "Local", "in": 0.0, "out": 0.0, "reasoning": 9, "coding": 8, "writing": 5,  "instruction": 7,  "ctx": 8192,  "tokens_per_sec": 20, "cost_per_hour": 0.18},
+    {"name": "Mistral 7B (Q4)",       "provider": "Local", "in": 0.0, "out": 0.0, "reasoning": 4, "coding": 5, "writing": 5,  "instruction": 6,  "ctx": 8192,  "tokens_per_sec": 70, "cost_per_hour": 0.08},
+    {"name": "Gemma 3 12B (Q4)",      "provider": "Local", "in": 0.0, "out": 0.0, "reasoning": 6, "coding": 6, "writing": 7,  "instruction": 7,  "ctx": 8192,  "tokens_per_sec": 40, "cost_per_hour": 0.14},
+    {"name": "Llama 3.1 70B (Q4)",    "provider": "Local", "in": 0.0, "out": 0.0, "reasoning": 8, "coding": 8, "writing": 8,  "instruction": 8,  "ctx": 8192,  "tokens_per_sec": 12, "cost_per_hour": 0.30},
+    {"name": "Qwen2.5 7B (Q8)",       "provider": "Local", "in": 0.0, "out": 0.0, "reasoning": 5, "coding": 6, "writing": 5,  "instruction": 6,  "ctx": 8192,  "tokens_per_sec": 55, "cost_per_hour": 0.10},
+    {"name": "DeepSeek V3 (Q2)",      "provider": "Local", "in": 0.0, "out": 0.0, "reasoning": 8, "coding": 7, "writing": 6,  "instruction": 7,  "ctx": 4096,  "tokens_per_sec": 8,  "cost_per_hour": 0.50},
+]
+
 # ── Task profiling ──
 # Keyword → (reasoning_need, coding_need, writing_need, complexity_multiplier)
 TASK_SIGNALS = {
@@ -122,10 +136,19 @@ def rank_models(profile: dict, mode: str = "value") -> list:
       value   — best capability per dollar (default)
       quality — best raw capability regardless of cost
       balanced — blended: 60% capability + 40% cost
+      local   — includes local/open-weight models alongside API models
     """
+    include_local = mode == "local"
+    if include_local:
+        mode = "value"  # use value scoring for fairness
+
+    all_models = list(MODELS)
+    if include_local:
+        all_models.extend(LOCAL_MODELS)
+
     results = []
 
-    for m in MODELS:
+    for m in all_models:
         # Capability score: how well does this model match the task needs?
         cap_match = (
             min(m["reasoning"], profile["reasoning_need"]) / max(profile["reasoning_need"], 1) * 0.35 +
@@ -135,9 +158,16 @@ def rank_models(profile: dict, mode: str = "value") -> list:
         )
 
         # Cost estimate
-        in_cost = m["in"] / 1_000_000 * profile["input_tokens"]
-        out_cost = m["out"] / 1_000_000 * profile["output_tokens"]
-        total_cost = in_cost + out_cost
+        if "cost_per_hour" in m:
+            # Local model: cost = (time to generate) × hourly rate
+            total_toks = profile["input_tokens"] + profile["output_tokens"]
+            time_seconds = total_toks / m["tokens_per_sec"]
+            total_cost = time_seconds / 3600 * m["cost_per_hour"]
+        else:
+            # API model: per-token pricing
+            in_cost = m["in"] / 1_000_000 * profile["input_tokens"]
+            out_cost = m["out"] / 1_000_000 * profile["output_tokens"]
+            total_cost = in_cost + out_cost
 
         # Context window check
         total_tokens = profile["input_tokens"] + profile["output_tokens"]
@@ -174,7 +204,7 @@ def rank_models(profile: dict, mode: str = "value") -> list:
 
 def format_output(task: str, profile: dict, rankings: list, mode: str = "value"):
     """Pretty-print the recommendation."""
-    mode_labels = {"value": "Best Value (capability/$)", "quality": "Best Quality (capability first)", "balanced": "Balanced (60% cap + 40% cost)"}
+    mode_labels = {"value": "Best Value (capability/$)", "quality": "Best Quality (capability first)", "balanced": "Balanced (60% cap + 40% cost)", "local": "Local vs API (includes open-weight models)"}
 
     print("=" * 60)
     print(f"  Task Cost Estimator — {mode_labels.get(mode, mode)}")
@@ -234,15 +264,18 @@ def main():
             mode = "quality"
         elif a == "--balanced":
             mode = "balanced"
+        elif a == "--local":
+            mode = "local"
         elif a == "--value":
             mode = "value"
         elif a in ("-h", "--help"):
-            print("Usage: task-cost [--quality|--balanced|--value] 'task description'")
+            print("Usage: task-cost [--quality|--balanced|--local] 'task description'")
             print("")
             print("Modes:")
             print("  (default)  Best value — capability per dollar")
             print("  --quality  Best quality — raw capability, ignore cost")
             print("  --balanced Blend 60% capability + 40% cost-effectiveness")
+            print("  --local    Include local/open-weight models alongside API")
             print("")
             print("Examples:")
             print("  task-cost 'build a REST API'")
