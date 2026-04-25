@@ -115,8 +115,14 @@ def profile_task(task: str) -> dict:
     }
 
 
-def rank_models(profile: dict) -> list:
-    """Rank models by capability match + cost-effectiveness."""
+def rank_models(profile: dict, mode: str = "value") -> list:
+    """Rank models by capability match + cost-effectiveness.
+    
+    Modes:
+      value   — best capability per dollar (default)
+      quality — best raw capability regardless of cost
+      balanced — blended: 60% capability + 40% cost
+    """
     results = []
 
     for m in MODELS:
@@ -128,12 +134,6 @@ def rank_models(profile: dict) -> list:
             min(m["instruction"], profile["instruction_need"]) / max(profile["instruction_need"], 1) * 0.10
         )
 
-        # Skip models that can't handle the task at all
-        if m["reasoning"] < profile["reasoning_need"] * 0.4 and profile["reasoning_need"] > 6:
-            continue
-        if m["coding"] < profile["coding_need"] * 0.4 and profile["coding_need"] > 6:
-            continue
-
         # Cost estimate
         in_cost = m["in"] / 1_000_000 * profile["input_tokens"]
         out_cost = m["out"] / 1_000_000 * profile["output_tokens"]
@@ -143,15 +143,24 @@ def rank_models(profile: dict) -> list:
         total_tokens = profile["input_tokens"] + profile["output_tokens"]
         ctx_ok = total_tokens <= m["ctx"] * 0.9
 
-        # Composite score: capability match / cost (higher is better value)
-        value_score = cap_match / max(total_cost, 0.0001) * 100
+        # Scoring per mode
+        if mode == "quality":
+            # Pure capability — ignore cost
+            score = round(cap_match * 100)
+        elif mode == "balanced":
+            # 60% capability + 40% cost-effectiveness
+            cost_score = 1.0 / max(total_cost, 0.0001) * 0.0001  # normalize
+            score = round(cap_match * 60 + cost_score * 40)
+        else:
+            # value: capability / cost
+            score = round(cap_match / max(total_cost, 0.0001) * 100)
 
         results.append({
             "provider": m["provider"],
             "model": m["name"],
             "cap_match": round(cap_match, 2),
             "cost": round(total_cost, 4),
-            "value_score": round(value_score),
+            "value_score": score,
             "ctx_ok": ctx_ok,
             "reasoning": m["reasoning"],
             "coding": m["coding"],
@@ -159,15 +168,16 @@ def rank_models(profile: dict) -> list:
             "ctx": m["ctx"],
         })
 
-    # Sort by value score (best cost-performance first)
     results.sort(key=lambda x: -x["value_score"])
     return results
 
 
-def format_output(task: str, profile: dict, rankings: list):
+def format_output(task: str, profile: dict, rankings: list, mode: str = "value"):
     """Pretty-print the recommendation."""
+    mode_labels = {"value": "Best Value (capability/$)", "quality": "Best Quality (capability first)", "balanced": "Balanced (60% cap + 40% cost)"}
+
     print("=" * 60)
-    print("  Task Cost Estimator")
+    print(f"  Task Cost Estimator — {mode_labels.get(mode, mode)}")
     print("=" * 60)
 
     # Task summary
@@ -214,20 +224,42 @@ def format_output(task: str, profile: dict, rankings: list):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: task-cost 'describe your task here...'")
-        print("")
-        print("Examples:")
-        print("  task-cost 'build a REST API with JWT auth in Python'")
-        print("  task-cost 'write a 2000-word blog post about AI ethics'")
-        print("  task-cost 'debug a recursive function causing stack overflow'")
-        print("  task-cost 'design a database schema for an e-commerce site'")
+    # Parse flags
+    args = sys.argv[1:]
+    mode = "value"
+    task_parts = []
+
+    for a in args:
+        if a == "--quality":
+            mode = "quality"
+        elif a == "--balanced":
+            mode = "balanced"
+        elif a == "--value":
+            mode = "value"
+        elif a in ("-h", "--help"):
+            print("Usage: task-cost [--quality|--balanced|--value] 'task description'")
+            print("")
+            print("Modes:")
+            print("  (default)  Best value — capability per dollar")
+            print("  --quality  Best quality — raw capability, ignore cost")
+            print("  --balanced Blend 60% capability + 40% cost-effectiveness")
+            print("")
+            print("Examples:")
+            print("  task-cost 'build a REST API'")
+            print("  task-cost --quality 'debug a complex algorithm'")
+            print("  task-cost --balanced 'write a blog post'")
+            return
+        else:
+            task_parts.append(a)
+
+    if not task_parts:
+        print("Usage: task-cost [--quality|--balanced] 'task description...'")
         sys.exit(1)
 
-    task = " ".join(sys.argv[1:])
+    task = " ".join(task_parts)
     profile = profile_task(task)
-    rankings = rank_models(profile)
-    format_output(task, profile, rankings)
+    rankings = rank_models(profile, mode)
+    format_output(task, profile, rankings, mode)
 
 
 if __name__ == "__main__":
