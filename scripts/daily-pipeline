@@ -1,0 +1,299 @@
+#!/usr/bin/env python3
+"""
+Daily Pipeline: Reddit Pain Scan → Classify → Build or Propose → Push to GitHub
+Runs once per day. Generates DAILY-REPORT.md pushed to repo.
+"""
+
+import json, os, sys, subprocess, time, re
+from datetime import datetime
+from collections import Counter, defaultdict
+from urllib.request import Request, urlopen
+
+REPO_DIR = os.path.expanduser("~/HermesMade")
+DATA_DIR = os.path.expanduser("~/.hermes/daily-pipeline")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+SUBREDDITS = [
+    "ChatGPT", "OpenAI", "ClaudeAI", "LocalLLaMA",
+    "artificialintelligence", "programming", "webdev", "technology"
+]
+
+PAIN_SIGNALS = [
+    "frustrat", "annoy", "hate", "terrible", "awful", "broken", "useless",
+    "waste", "garbage", "horrible", "pain", "sucks",
+    "doesn't work", "not working", "stuck", "can't ", "cannot ",
+    "bug", "issue", "problem", "error", "fail", "broke",
+    "wish", "need", "missing", "should have",
+    "if only", "i want", "please add",
+    "confus", "unclear", "no tutorial",
+    "hard to", "difficult to", "complicated",
+    "hallucinat", "censored", "refus",
+    "expensive", "overpriced", "privacy",
+]
+
+EXISTING_TOOLS = {
+    "censorship": "prompt-inspector",
+    "filter": "prompt-inspector",
+    "blocked": "prompt-inspector",
+    "degrad": "model-watch",
+    "hallucinat": "model-watch",
+    "dumber": "model-watch",
+    "stupid": "model-watch",
+    "pric": "api-cost",
+    "cost": "api-cost",
+    "expens": "api-cost",
+}
+
+def gh(*args):
+    return subprocess.run(["gh", *args], capture_output=True, text=True, cwd=REPO_DIR).stdout.strip()
+
+def scan_reddit():
+    """Scan Reddit for pain signals. Returns list of pain comments."""
+    results = []
+    for sub in SUBREDDITS:
+        try:
+            url = f"https://www.reddit.com/r/{sub}/hot.json?limit=10"
+            req = Request(url, headers={"User-Agent": "HermesDailyPipeline/0.1", "Accept": "application/json"})
+            resp = urlopen(req, timeout=20)
+            data = json.loads(resp.read())
+            posts = data.get("data", {}).get("children", [])
+
+            for pw in posts:
+                post = pw.get("data", {})
+                title = post.get("title", "")
+                permalink = post.get("permalink", "")
+                ups = post.get("ups", 0)
+
+                # Scan post title
+                title_lower = title.lower()
+                matched = [s for s in PAIN_SIGNALS if s in title_lower]
+                if matched and len(title) > 20:
+                    results.append({
+                        "subreddit": sub, "type": "post",
+                        "body": title[:300], "score": ups,
+                        "signals": matched,
+                        "permalink": f"https://reddit.com{permalink}"
+                    })
+
+                # Scan top comments
+                try:
+                    curl = f"https://www.reddit.com{permalink}.json?limit=15"
+                    req2 = Request(curl, headers={"User-Agent": "HermesDailyPipeline/0.1", "Accept": "application/json"})
+                    resp2 = urlopen(req2, timeout=20)
+                    cdata = json.loads(resp2.read())
+
+                    def extract(children, depth=0):
+                        if depth > 2: return
+                        for c in children:
+                            if c.get("kind") != "t1": continue
+                            cd = c.get("data", {})
+                            body = cd.get("body", "")
+                            body_lower = body.lower()
+                            score = cd.get("score", 0)
+                            matched_c = [s for s in PAIN_SIGNALS if s in body_lower]
+                            if matched_c and len(body) > 50:
+                                results.append({
+                                    "subreddit": sub, "type": "comment",
+                                    "body": body[:400], "score": score,
+                                    "signals": matched_c,
+                                    "permalink": f"https://reddit.com{cd.get('permalink','')}"
+                                })
+                            replies = cd.get("replies", "")
+                            if isinstance(replies, dict):
+                                extract(replies.get("data", {}).get("children", []), depth+1)
+
+                    if len(cdata) >= 2:
+                        extract(cdata[1].get("data", {}).get("children", []))
+                except:
+                    pass
+
+                time.sleep(1)
+        except Exception as e:
+            print(f"  ⚠ r/{sub}: {e}")
+        time.sleep(1)
+
+    print(f"  Scanned: {len(results)} pain signals")
+    return results
+
+
+def classify_pains(results):
+    """Group pain signals into clusters and match against existing tools."""
+    clusters = defaultdict(list)
+
+    keywords_map = {
+        "AI Censorship / Safety Overreach": ["censor", "refus", "blocked", "filter", "safety", "restrict", "guardrail"],
+        "AI Model Degradation": ["degrad", "dumber", "stupid", "worse", "hallucinat", "regress", "quality drop"],
+        "AI API Pricing / Cost": ["pric", "cost", "expens", "overpriced", "cheap", "tokens", "rate limit"],
+        "GitHub / CI-CD Issues": ["github", "actions", "ci/cd", "workflow", "pipeline", "dependabot"],
+        "AI Code Quality": ["vibe cod", "ai generat", "code quality", "bug", "broken code"],
+        "Local LLM / Deployment": ["local", "deploy", "ram", "gpu", "vram", "quantiz", "ollama", "llama.cpp"],
+        "Supply Chain Security": ["supply chain", "dependenc", "npm", "pip ", "vulnerab", "malware"],
+        "AI Detection / Deepfake": ["detect", "deepfake", "ai generat", "watermark", "authentic"],
+    }
+
+    for r in results:
+        body_lower = r["body"].lower()
+        matched_cats = []
+        for cat, kws in keywords_map.items():
+            if any(kw in body_lower for kw in kws):
+                matched_cats.append(cat)
+        if not matched_cats:
+            matched_cats = ["Other / Uncategorized"]
+
+        for cat in matched_cats:
+            clusters[cat].append(r)
+
+    return clusters
+
+
+def check_existing_tool(category):
+    """Check if we already have a tool for this category."""
+    for kw, tool in EXISTING_TOOLS.items():
+        if kw.lower() in category.lower():
+            return tool
+    return None
+
+
+def generate_report(clusters, metrics=None):
+    """Generate daily report markdown."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    lines = []
+    lines.append(f"# Daily Pain Scan — {today}")
+    lines.append("")
+    lines.append(f"Auto-generated by HermesMade daily pipeline. Scanned {len(SUBREDDITS)} subreddits.")
+    lines.append("")
+
+    # Summary
+    total = sum(len(v) for v in clusters.values())
+    lines.append(f"## Summary: {total} pain signals, {len(clusters)} categories")
+    lines.append("")
+
+    # Per category
+    for cat, items in sorted(clusters.items(), key=lambda x: -len(x[1])):
+        existing = check_existing_tool(cat)
+        badge = f" 🔧 → `{existing}`" if existing else " 🆕 No tool yet"
+        lines.append(f"### {cat} ({len(items)} signals){badge}")
+        lines.append("")
+
+        # Top 3 examples
+        for item in sorted(items, key=lambda x: -x["score"])[:3]:
+            lines.append(f"> *\"{item['body'][:200]}...\"*")
+            lines.append(f"> — r/{item['subreddit']} ({item['score']}↑) | [link]({item['permalink']})")
+            lines.append("")
+
+        lines.append("")
+
+    # New tool suggestions
+    new_cats = {c: items for c, items in clusters.items()
+                if not check_existing_tool(c) and len(items) >= 3}
+    if new_cats:
+        lines.append("## 🛠 New Tool Candidates (≥3 signals, no existing tool)")
+        lines.append("")
+        i = 1
+        for cat, items in sorted(new_cats.items(), key=lambda x: -len(x[1])):
+            lines.append(f"{i}. **{cat}** — {len(items)} signals")
+            lines.append(f"   Top signal: *\"{items[0]['body'][:150]}...\"*")
+            lines.append("")
+            i += 1
+
+    # Growth tips
+    lines.append("## 📈 Growth Strategy Tip")
+    tips = [
+        "Reply to today's top pain thread on Reddit with a link to our tool",
+        "Check if any of today's pain threads have >50 upvotes — those are posting opportunities",
+        "Cross-post our best tool to r/coolgithubprojects",
+        "Tweet about today's top finding with #AI #DevTools",
+        "If a pain category hits 10+ signals in one day, build the tool immediately",
+    ]
+    import random
+    lines.append(f"💡 Today's tip: {random.choice(tips)}")
+    lines.append("")
+
+    # Metrics
+    if metrics:
+        lines.append("## 📊 Repo Metrics")
+        lines.append(f"⭐ {metrics.get('stars',0)} stars | 🍴 {metrics.get('forks',0)} forks | 👁 {metrics.get('views',0)} views")
+        lines.append("")
+
+    lines.append("---")
+    lines.append(f"*Next scan: tomorrow ~{datetime.now().strftime('%H:%M')}*")
+
+    return "\n".join(lines)
+
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "run"
+
+    if cmd == "run":
+        print("=" * 60)
+        print("  HermesMade Daily Pipeline")
+        print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        print("=" * 60)
+
+        # Step 1: Scan
+        print("\n🔍 Scanning Reddit...")
+        results = scan_reddit()
+
+        # Step 2: Classify
+        print("\n📊 Classifying...")
+        clusters = classify_pains(results)
+
+        # Step 3: Check metrics
+        print("\n📈 Fetching metrics...")
+        try:
+            metrics_raw = gh("api", "repos/minirr890112-byte/HermesMade/traffic/views")
+            metrics = json.loads(metrics_raw)
+        except:
+            metrics = {"count": 0, "uniques": 0}
+
+        # Step 4: Generate report
+        print("\n📝 Generating report...")
+        report = generate_report(clusters, {"stars": 0, "forks": 0, "views": metrics.get("count", 0)})
+
+        # Save report
+        report_path = os.path.join(REPO_DIR, "DAILY-REPORT.md")
+        with open(report_path, "w") as f:
+            f.write(report)
+
+        # Save raw data
+        data_path = os.path.join(DATA_DIR, f"scan-{datetime.now().strftime('%Y%m%d')}.json")
+        with open(data_path, "w") as f:
+            json.dump({"results": results, "clusters": {k: len(v) for k, v in clusters.items()}}, f, indent=2)
+
+        # Step 5: Push to GitHub
+        print("\n📤 Pushing to GitHub...")
+        os.chdir(REPO_DIR)
+        subprocess.run(["git", "pull", "--rebase"], capture_output=True)
+        subprocess.run(["git", "add", "DAILY-REPORT.md"])
+        subprocess.run(["git", "commit", "-m", f"report: daily pain scan {datetime.now().strftime('%Y-%m-%d')}"], capture_output=True)
+        push = subprocess.run(["git", "push"], capture_output=True, text=True)
+        if push.returncode == 0:
+            print("   ✅ Pushed to GitHub")
+        else:
+            print(f"   ⚠ Push: {push.stderr[:200]}")
+
+        # Step 6: Print summary
+        print("\n" + "=" * 60)
+        total = sum(len(v) for v in clusters.values())
+        print(f"  Done. {total} signals, {len(clusters)} categories.")
+        new = {c: v for c, v in clusters.items() if not check_existing_tool(c) and len(v) >= 3}
+        if new:
+            print(f"  🆕 {len(new)} categories ready for new tools!")
+        print(f"  📄 Report: {report_path}")
+        print("=" * 60)
+
+    elif cmd == "report":
+        report_path = os.path.join(REPO_DIR, "DAILY-REPORT.md")
+        if os.path.exists(report_path):
+            with open(report_path) as f:
+                print(f.read())
+        else:
+            print("No report yet. Run 'daily-pipeline run' first.")
+
+    else:
+        print("Daily Pipeline Commands:")
+        print("  run      Full pipeline: scan → classify → report → push")
+        print("  report   Print latest report")
+
+if __name__ == "__main__":
+    main()
