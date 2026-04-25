@@ -3,7 +3,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.8+-blue" alt="Python">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/tools-5-orange" alt="Tools">
+  <img src="https://img.shields.io/badge/tools-6-orange" alt="Tools">
   <img src="https://img.shields.io/github/stars/minirr890112-byte/HermesMade" alt="Stars">
   <img src="https://img.shields.io/badge/data-343%20pain%20signals-red" alt="Data">
 </p>
@@ -33,9 +33,10 @@ pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory
 pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory=api-cost-compare
 pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory=llm-deploy-helper
 pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory=code-inspector
+pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory=task-cost-estimator
 ```
 
-5 standalone CLIs: `prompt-inspector` | `model-watch` | `api-cost` | `llm-deploy` | `code-inspector`
+6 standalone CLIs: `prompt-inspector` | `model-watch` | `api-cost` | `llm-deploy` | `code-inspector` | `task-cost`
 
 ---
 
@@ -141,7 +142,7 @@ Most open-source tools come from a developer thinking "this would be cool."
 |---|-----------|-----------|--------|
 | 1 | AI censorship overreach | ★★★★★ | ✅ prompt-inspector |
 | 2 | AI models silently degrading | ★★★★★ | ✅ model-watch |
-| 3 | Opaque API pricing | ★★★★☆ | ✅ api-cost |
+| 3 | Opaque API pricing | ★★★★☆ | ✅ api-cost / task-cost |
 | 4 | Local LLM setup too hard | ★★★★☆ | ✅ llm-deploy |
 | 5 | AI-generated code quality | ★★★★☆ | ✅ code-inspector |
 | 6 | GitHub Actions unreliable | ★★★★☆ | ⬜ Up next |

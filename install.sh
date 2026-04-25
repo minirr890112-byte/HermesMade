@@ -35,10 +35,16 @@ case "${1:-all}" in
     api)
         install_one "api-cost-compare" "api-cost"
         ;;
+    task)
+        install_one "task-cost-estimator" "task-cost"
+        ;;
     all|*)
         install_one "prompt-inspector" "prompt-inspector"
         install_one "model-watch" "model-watch"
         install_one "api-cost-compare" "api-cost"
+        install_one "llm-deploy-helper" "llm-deploy"
+        install_one "code-inspector" "code-inspector"
+        install_one "task-cost-estimator" "task-cost"
         ;;
 esac
 
