@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""GitHub repo metrics tracker — logs stars, views, clones, and search ranking over time."""
+
+import json, os, sys, subprocess
+from datetime import datetime
+
+REPO = "minirr890112-byte/HermesMade"
+DATA_FILE = os.path.expanduser("~/.hermes/github-metrics.json")
+
+# Keywords to track search ranking for
+SEARCH_TERMS = [
+    "prompt censorship bypass cli",
+    "model degradation monitor cli",
+    "llm cost comparison cli",
+    "model quality watchdog",
+    "prompt censorship checker",
+    "ai model benchmark degradation",
+    "api cost compare openai",
+]
+
+def gh(*args):
+    return subprocess.run(["gh", *args], capture_output=True, text=True).stdout.strip()
+
+def fetch_metrics():
+    now = datetime.now().isoformat()
+
+    # Stars / forks / watchers
+    stars = gh("repo", "view", "--json", "stargazerCount", "-q", ".stargazerCount")
+    forks = gh("repo", "view", "--json", "forkCount", "-q", ".forkCount")
+    watchers = gh("repo", "view", "--json", "watchers", "-q", ".watchers.totalCount")
+
+    # Traffic
+    views_raw = gh("api", f"repos/{REPO}/traffic/views")
+    clones_raw = gh("api", f"repos/{REPO}/traffic/clones")
+    try:
+        views = json.loads(views_raw)
+        clones = json.loads(clones_raw)
+    except:
+        views = {"count": 0, "uniques": 0}
+        clones = {"count": 0, "uniques": 0}
+
+    # Search ranking (check if repo appears in top 5 for each keyword)
+    search_results = {}
+    for term in SEARCH_TERMS:
+        try:
+            result = gh("search", "repos", term, "--limit", "5", "--json", "fullName")
+            repos = json.loads(result)
+            rank = None
+            for i, r in enumerate(repos):
+                if REPO in r.get("fullName", ""):
+                    rank = i + 1
+                    break
+            search_results[term] = rank
+        except:
+            search_results[term] = "error"
+
+    entry = {
+        "timestamp": now,
+        "stars": int(stars or 0),
+        "forks": int(forks or 0),
+        "watchers": int(watchers or 0),
+        "views_total": views.get("count", 0),
+        "views_unique": views.get("uniques", 0),
+        "clones_total": clones.get("count", 0),
+        "clones_unique": clones.get("uniques", 0),
+        "search_ranking": search_results,
+    }
+
+    return entry
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "snapshot"
+
+    if cmd == "snapshot":
+        entry = fetch_metrics()
+        history = []
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE) as f:
+                history = json.load(f)
+        history.append(entry)
+        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+        with open(DATA_FILE, "w") as f:
+            json.dump(history, f, indent=2)
+
+        print(f"⭐ {entry['stars']} stars | 🍴 {entry['forks']} forks | 👁 {entry['views_total']} views | 📥 {entry['clones_total']} clones")
+        print("\nSearch ranking:")
+        for term, rank in entry["search_ranking"].items():
+            icon = "✅" if rank else "❌"
+            rank_str = f"#{rank}" if rank else "not found"
+            print(f"  {icon} {term}: {rank_str}")
+
+    elif cmd == "report":
+        if not os.path.exists(DATA_FILE):
+            print("No data yet. Run 'github-metrics snapshot' first.")
+            return
+        with open(DATA_FILE) as f:
+            history = json.load(f)
+
+        if len(history) < 2:
+            print("Only one data point. Run another snapshot to see trends.")
+            return
+
+        first = history[0]
+        last = history[-1]
+        prev = history[-2]
+
+        print(f"Period: {first['timestamp'][:10]} → {last['timestamp'][:10]} ({len(history)} snapshots)")
+        print(f"Stars:  {first['stars']} → {last['stars']} ({last['stars'] - first['stars']:+d})")
+        print(f"Views:  {first['views_total']} → {last['views_total']}")
+        print(f"Clones: {first['clones_total']} → {last['clones_total']}")
+
+        # Check if any search ranking improved
+        print("\nSearch trend:")
+        for term in SEARCH_TERMS:
+            old = first.get("search_ranking", {}).get(term)
+            new = last.get("search_ranking", {}).get(term)
+            if old and new and old > new:
+                print(f"  📈 {term}: #{old} → #{new} (improved)")
+            elif old and not new:
+                print(f"  📉 {term}: #{old} → lost")
+            elif not old and new:
+                print(f"  🆕 {term}: now #{new}")
+            else:
+                print(f"  ➡ {term}: #{new or 'not found'}")
+
+    elif cmd == "trend":
+        if not os.path.exists(DATA_FILE):
+            print("No data yet.")
+            return
+        with open(DATA_FILE) as f:
+            history = json.load(f)
+
+        print(f"{'Date':<12} {'⭐':>5} {'👁':>6} {'📥':>6}")
+        for entry in history:
+            date = entry["timestamp"][:10]
+            print(f"{date:<12} {entry['stars']:>5} {entry['views_total']:>6} {entry['clones_total']:>6}")
+
+    else:
+        print("GitHub Metrics Tracker")
+        print("  snapshot   Record current metrics")
+        print("  report     Show change since first snapshot")
+        print("  trend      Show all snapshots")
+
+if __name__ == "__main__":
+    main()
