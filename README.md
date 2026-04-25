@@ -3,7 +3,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.8+-blue" alt="Python">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/tools-3%20%7C%20planned-5-orange" alt="Tools">
+  <img src="https://img.shields.io/badge/tools-5-orange" alt="Tools">
+  <img src="https://img.shields.io/github/stars/minirr890112-byte/HermesMade" alt="Stars">
   <img src="https://img.shields.io/badge/data-343%20pain%20signals-red" alt="Data">
 </p>
 
@@ -30,9 +31,11 @@ cd HermesMade && bash install.sh
 pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory=prompt-inspector
 pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory=model-watch
 pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory=api-cost-compare
+pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory=llm-deploy-helper
+pip install git+https://github.com/minirr890112-byte/HermesMade.git#subdirectory=code-inspector
 ```
 
-Each tool installs as a standalone CLI: `prompt-inspector` | `model-watch` | `api-cost`
+5 standalone CLIs: `prompt-inspector` | `model-watch` | `api-cost` | `llm-deploy` | `code-inspector`
 
 ---
 
@@ -136,12 +139,12 @@ Most open-source tools come from a developer thinking "this would be cool."
 
 | # | Pain Point | Frequency | Status |
 |---|-----------|-----------|--------|
-| 1 | AI censorship overreach | ★★★★★ | ✅ Shipped |
-| 2 | AI models silently degrading | ★★★★★ | ✅ Shipped |
-| 3 | Opaque API pricing | ★★★★☆ | ✅ Shipped |
-| 4 | GitHub Actions unreliable | ★★★★☆ | ⬜ Up next |
-| 5 | AI-generated code quality | ★★★★☆ | ⬜ Up next |
-| 6 | Local LLM setup too hard | ★★★★☆ | ⬜ Up next |
+| 1 | AI censorship overreach | ★★★★★ | ✅ prompt-inspector |
+| 2 | AI models silently degrading | ★★★★★ | ✅ model-watch |
+| 3 | Opaque API pricing | ★★★★☆ | ✅ api-cost |
+| 4 | Local LLM setup too hard | ★★★★☆ | ✅ llm-deploy |
+| 5 | AI-generated code quality | ★★★★☆ | ✅ code-inspector |
+| 6 | GitHub Actions unreliable | ★★★★☆ | ⬜ Up next |
 | 7 | Supply chain security fear | ★★★☆☆ | ⬜ Planned |
 | 8 | Deepfake detection anxiety | ★★★☆☆ | ⬜ Planned |
 
@@ -166,4 +169,31 @@ HermesMade/
 ├── LICENSE               # MIT
 ├── PROMOTION.md          # star-growth strategy
 └── README.md
+```
+
+### 4. llm-deploy — Local LLM One-Command Setup
+
+**Pain**: Users buying wrong hardware, struggling to figure out which model fits.
+
+> *"most annoyed I've ever been at myself for not going overboard with RAM"* — r/LocalLLaMA (227↑)
+
+```bash
+$ llm-deploy coding
+
+🖥 Hardware: Darwin | RAM: 16GB | GPU: Apple Silicon
+⭐ #1 Qwen2.5 7B (4.5G, 28% util) → ollama pull qwen2.5:7b
+```
+
+### 5. code-inspector — AI Code Quality Scanner
+
+**Pain**: AI-generated code looks fine until edge cases hit.
+
+> *"everything seemed fine until you inspected the edge cases"* — r/webdev (27↑)
+
+```bash
+$ code-inspector app.py
+
+📊 Score: 85/100 → 🟡 NEEDS REVIEW
+🔴 Hardcoded API key on line 12
+🟠 Mutable default on line 45
 ```
