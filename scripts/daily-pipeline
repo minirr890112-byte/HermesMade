@@ -14,9 +14,11 @@ DATA_DIR = os.path.expanduser("~/.hermes/daily-pipeline")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 SUBREDDITS = [
-    "ChatGPT", "OpenAI", "ClaudeAI", "LocalLLaMA",
-    "artificialintelligence", "programming", "webdev", "technology"
+    "ChatGPT", "ClaudeAI", "LocalLLaMA", "programming", "webdev"
 ]
+
+# Fast mode: shorter timeouts for cron runs
+SCAN_TIMEOUT = 8  # seconds per request
 
 PAIN_SIGNALS = [
     "frustrat", "annoy", "hate", "terrible", "awful", "broken", "useless",
@@ -54,7 +56,7 @@ def scan_reddit():
         try:
             url = f"https://www.reddit.com/r/{sub}/hot.json?limit=10"
             req = Request(url, headers={"User-Agent": "HermesDailyPipeline/0.1", "Accept": "application/json"})
-            resp = urlopen(req, timeout=20)
+            resp = urlopen(req, timeout=SCAN_TIMEOUT)
             data = json.loads(resp.read())
             posts = data.get("data", {}).get("children", [])
 
@@ -79,7 +81,7 @@ def scan_reddit():
                 try:
                     curl = f"https://www.reddit.com{permalink}.json?limit=15"
                     req2 = Request(curl, headers={"User-Agent": "HermesDailyPipeline/0.1", "Accept": "application/json"})
-                    resp2 = urlopen(req2, timeout=20)
+                    resp2 = urlopen(req2, timeout=SCAN_TIMEOUT)
                     cdata = json.loads(resp2.read())
 
                     def extract(children, depth=0):
@@ -107,10 +109,10 @@ def scan_reddit():
                 except:
                     pass
 
-                time.sleep(1)
+                time.sleep(0.5)
         except Exception as e:
             print(f"  ⚠ r/{sub}: {e}")
-        time.sleep(1)
+        time.sleep(0.5)
 
     print(f"  Scanned: {len(results)} pain signals")
     return results
