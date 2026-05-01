@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Daily Pipeline: Reddit Pain Scan → Classify → Build or Propose → Push to GitHub
+Daily Pipeline: Reddit + V2EX Pain Scan → Classify → Build or Propose → Push to GitHub
 Runs once per day. Generates DAILY-REPORT.md pushed to repo.
+Now covers English (Reddit) + Chinese (V2EX) developer pain points.
 """
 
 import json, os, sys, subprocess, time, re
@@ -17,10 +18,24 @@ SUBREDDITS = [
     "ChatGPT", "ClaudeAI", "LocalLLaMA", "programming", "webdev"
 ]
 
+# V2EX nodes — high-signal Chinese developer platforms
+V2EX_NODES = [
+    # AI/LLM core
+    "openai", "deepseek", "localllm", "agent", "claudecode", "codex",
+    "aigc", "ai-tools",
+    # Dev/Engineering
+    "programmer", "programming", "python", "webdev", "devops",
+    "vscode", "jetbrains",
+    # General tech
+    "tech", "share", "create",
+]
+
 # Fast mode: shorter timeouts for cron runs
 SCAN_TIMEOUT = 8  # seconds per request
+SCAN_TIMEOUT_ZH = 5  # seconds per request for Chinese platforms
 
 PAIN_SIGNALS = [
+    # English pain signals
     "frustrat", "annoy", "hate", "terrible", "awful", "broken", "useless",
     "waste", "garbage", "horrible", "pain", "sucks",
     "doesn't work", "not working", "stuck", "can't ", "cannot ",
@@ -31,9 +46,22 @@ PAIN_SIGNALS = [
     "hard to", "difficult to", "complicated",
     "hallucinat", "censored", "refus",
     "expensive", "overpriced", "privacy",
+    # Chinese pain signals (exact Unicode match, deterministic)
+    "报错", "崩溃", "卡住", "卡死", "太慢", "很慢", "超慢",
+    "限流", "封号", "封禁", "降智", "退化", "变差",
+    "幻觉", "糊", "糊了", "胡说", "瞎编",
+    "收费", "太贵", "好贵", "涨价", "买不起",
+    "不支持", "不能用", "用不了", "没法用",
+    "文档缺失", "没文档", "文档垃圾",
+    "部署失败", "装不上", "不兼容",
+    "审核", "审查", "敏感词", "拦截",
+    "跨域", "跨域问题",
+    "浪费", "浪费时间",
+    "订阅通胀", "订阅",
 ]
 
 EXISTING_TOOLS = {
+    # English mappings
     "censorship": "prompt-inspector",
     "filter": "prompt-inspector",
     "blocked": "prompt-inspector",
@@ -44,7 +72,85 @@ EXISTING_TOOLS = {
     "pric": "api-cost",
     "cost": "api-cost",
     "expens": "api-cost",
+    # Chinese mappings
+    "审核": "prompt-inspector",
+    "审查": "prompt-inspector",
+    "敏感词": "prompt-inspector",
+    "封号": "zh-prompt-guard",
+    "封禁": "zh-prompt-guard",
+    "降智": "model-watch",
+    "退化": "model-watch",
+    "变差": "model-watch",
+    "幻觉": "model-watch",
+    "太贵": "api-cost",
+    "收费": "api-cost",
+    "涨价": "api-cost",
+    "订阅通胀": "api-cost",
+    "限流": "api-cost",
+    "部署失败": "llm-deploy",
+    "卡住": "llm-deploy",
+    "崩溃": "llm-deploy",
+    "跨域": "webdev-fixer",
+    "跨域问题": "webdev-fixer",
+    "文档缺失": "doc-generator",
 }
+
+def scan_v2ex():
+    """Scan V2EX nodes for Chinese pain signals. Returns list of pain items."""
+    results = []
+    log_lines = []
+    start = time.time()
+
+    for node in V2EX_NODES:
+        try:
+            url = f"https://www.v2ex.com/api/topics/show.json?node_name={node}"
+            req = Request(url, headers={
+                "User-Agent": "HermesDailyPipeline/0.1",
+                "Accept": "application/json"
+            })
+            resp = urlopen(req, timeout=SCAN_TIMEOUT_ZH)
+            data = json.loads(resp.read())
+
+            log_lines.append(f"[INFO] Fetched {len(data)} topics from v2ex.{node} ({datetime.now().isoformat()}Z)")
+
+            node_pain_count = 0
+            for topic in data:
+                title = topic.get("title", "")
+                content = topic.get("content", "")
+                combined = f"{title} {content}"
+
+                # Check for pain signals (case-insensitive for English, exact for Chinese)
+                matched = [s for s in PAIN_SIGNALS if s.lower() in combined.lower()]
+                if matched and len(combined) > 30:
+                    node_pain_count += 1
+                    results.append({
+                        "source": "v2ex",
+                        "node": node,
+                        "type": "post",
+                        "body": title[:300],
+                        "content": content[:400] if content else "",
+                        "replies": topic.get("replies", 0),
+                        "score": topic.get("replies", 0),  # Use reply count as proxy for "upvotes"
+                        "signals": matched,
+                        "permalink": f"https://www.v2ex.com/t/{topic.get('id','')}",
+                    })
+
+            log_lines.append(f"[DEBUG] Extracted {node_pain_count} pain mentions from v2ex.{node}")
+
+        except Exception as e:
+            log_lines.append(f"[WARN] v2ex.{node} failed: {e}")
+
+    # Write log
+    log_dir = os.path.join(DATA_DIR, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, f"zh-scan-{datetime.now().strftime('%Y-%m-%d')}.log")
+    with open(log_path, "a") as f:
+        f.write("\n".join(log_lines) + "\n")
+        f.write(f"[SUCCESS] V2EX scan completed in {time.time()-start:.2f}s\n")
+
+    print(f"  V2EX: {len(results)} pain signals from {len(V2EX_NODES)} nodes ({time.time()-start:.1f}s)")
+    return results
+
 
 def gh(*args):
     return subprocess.run(["gh", *args], capture_output=True, text=True, cwd=REPO_DIR).stdout.strip()
@@ -123,14 +229,20 @@ def classify_pains(results):
     clusters = defaultdict(list)
 
     keywords_map = {
-        "AI Censorship / Safety Overreach": ["censor", "refus", "blocked", "filter", "safety", "restrict", "guardrail"],
-        "AI Model Degradation": ["degrad", "dumber", "stupid", "worse", "hallucinat", "regress", "quality drop"],
-        "AI API Pricing / Cost": ["pric", "cost", "expens", "overpriced", "cheap", "tokens", "rate limit"],
+        "AI Censorship / Safety Overreach": ["censor", "refus", "blocked", "filter", "safety", "restrict", "guardrail",
+                                              "审核", "审查", "敏感词", "封号", "拦截"],
+        "AI Model Degradation": ["degrad", "dumber", "stupid", "worse", "hallucinat", "regress", "quality drop",
+                                  "降智", "退化", "变差", "幻觉", "糊", "瞎编"],
+        "AI API Pricing / Cost": ["pric", "cost", "expens", "overpriced", "cheap", "tokens", "rate limit",
+                                   "太贵", "收费", "涨价", "订阅通胀", "限流", "买不起"],
         "GitHub / CI-CD Issues": ["github", "actions", "ci/cd", "workflow", "pipeline", "dependabot"],
         "AI Code Quality": ["vibe cod", "ai generat", "code quality", "bug", "broken code"],
-        "Local LLM / Deployment": ["local", "deploy", "ram", "gpu", "vram", "quantiz", "ollama", "llama.cpp"],
+        "Local LLM / Deployment": ["local", "deploy", "ram", "gpu", "vram", "quantiz", "ollama", "llama.cpp",
+                                    "部署失败", "装不上", "不兼容", "卡住", "崩溃"],
         "Supply Chain Security": ["supply chain", "dependenc", "npm", "pip ", "vulnerab", "malware"],
         "AI Detection / Deepfake": ["detect", "deepfake", "ai generat", "watermark", "authentic"],
+        "WebDev Pain (Cross-origin, etc)": ["跨域", "跨域问题", "cors", "cross-origin", "前端", "前端开发"],
+        "Documentation / DevEx": ["文档缺失", "没文档", "文档垃圾", "no tutorial", "unclear", "confus"],
     }
 
     for r in results:
@@ -162,7 +274,7 @@ def generate_report(clusters, metrics=None):
     lines = []
     lines.append(f"# Daily Pain Scan — {today}")
     lines.append("")
-    lines.append(f"Auto-generated by HermesMade daily pipeline. Scanned {len(SUBREDDITS)} subreddits.")
+    lines.append(f"Auto-generated by HermesMade daily pipeline. Scanned {len(SUBREDDITS)} subreddits + {len(V2EX_NODES)} V2EX nodes.")
     lines.append("")
 
     # Summary
@@ -179,8 +291,13 @@ def generate_report(clusters, metrics=None):
 
         # Top 3 examples
         for item in sorted(items, key=lambda x: -x["score"])[:3]:
+            source_tag = item.get("source", "")
+            if source_tag == "v2ex":
+                source_str = f"v2ex/{item['node']}"
+            else:
+                source_str = f"r/{item['subreddit']}"
             lines.append(f"> *\"{item['body'][:200]}...\"*")
-            lines.append(f"> — r/{item['subreddit']} ({item['score']}↑) | [link]({item['permalink']})")
+            lines.append(f"> — {source_str} ({item['score']}↑) | [link]({item['permalink']})")
             lines.append("")
 
         lines.append("")
@@ -193,8 +310,14 @@ def generate_report(clusters, metrics=None):
         lines.append("")
         i = 1
         for cat, items in sorted(new_cats.items(), key=lambda x: -len(x[1])):
+            top_item = items[0]
+            source_tag = top_item.get("source", "")
+            if source_tag == "v2ex":
+                source_str = f"v2ex/{top_item['node']}"
+            else:
+                source_str = f"r/{top_item['subreddit']}"
             lines.append(f"{i}. **{cat}** — {len(items)} signals")
-            lines.append(f"   Top signal: *\"{items[0]['body'][:150]}...\"*")
+            lines.append(f"   Top signal ({source_str}): *\"{items[0]['body'][:150]}...\"*")
             lines.append("")
             i += 1
 
@@ -232,9 +355,14 @@ def main():
         print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M')}")
         print("=" * 60)
 
-        # Step 1: Scan
+        # Step 1: Scan Reddit
         print("\n🔍 Scanning Reddit...")
         results = scan_reddit()
+
+        # Step 1b: Scan V2EX (China)
+        print("\n🇨🇳 Scanning V2EX China...")
+        zh_results = scan_v2ex()
+        results.extend(zh_results)
 
         # Step 2: Classify
         print("\n📊 Classifying...")
