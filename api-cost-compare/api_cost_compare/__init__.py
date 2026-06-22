@@ -1,5 +1,3 @@
-"""API Cost Compare — Compare AI API pricing and optimize costs."""
+"""api-cost-compare: 对比各大 LLM 提供商 API 定价的 CLI 工具"""
 
-from .cli import main
-
-__version__ = "0.1.0"
+__version__ = "1.0.0"

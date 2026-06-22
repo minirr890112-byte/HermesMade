@@ -1,239 +1,355 @@
-#!/usr/bin/env python3
-"""
-Code Inspector — scan AI-generated code for common issues.
-Checks: infinite loops, shadowed builtins, empty except, hardcoded secrets,
-bare return types, mutable defaults, f-string injection risks, and more.
+"""CLI entry point for code-inspector."""
 
-Source: Reddit pain #5 — AI code quality
-> "everything seemed fine until you inspected the edge cases, it missed the core logic" — r/webdev (27↑)
-> "Broke entire site because you let loose Claude? Triple rate" — r/webdev (21↑)
-"""
+import os
+import click
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.text import Text
+from rich import box
 
-import re, sys, os, ast
-from typing import List, Dict
+from code_inspector.detectors import (
+    inspect_code,
+    inspect_directory,
+    CodeSmell,
+    InspectResult,
+    SEVERITY_WEIGHTS,
+)
 
-# ── Pattern-based checks ──
-PATTERNS = [
-    {
-        "id": "infinite-loop",
-        "severity": "critical",
-        "pattern": r"while\s+True\s*:\s*\n\s*\w+\.append",
-        "desc": "Possible infinite loop: appending to list while iterating",
-        "fix": "Iterate over a copy: for item in list(my_list):",
-    },
-    {
-        "id": "shadow-builtin",
-        "severity": "high",
-        "pattern": r"^(list|dict|set|str|int|float|bool|type|id|input|print|sum|min|max|len|open|file|map|filter|zip|range|object|class|bytes|memoryview|property|staticmethod|classmethod|super|tuple)\s*=",
-        "desc": "Shadows Python builtin — can cause confusing bugs",
-        "fix": "Rename the variable (e.g., my_list, data_dict)",
-    },
-    {
-        "id": "empty-except",
-        "severity": "high",
-        "pattern": r"except\s*:",
-        "desc": "Bare except catches everything including KeyboardInterrupt",
-        "fix": "Catch specific exceptions: except (ValueError, KeyError):",
-    },
-    {
-        "id": "bare-except-pass",
-        "severity": "critical",
-        "pattern": r"except[^:]*:\s*\n\s*pass",
-        "desc": "Exception silently swallowed — bugs hidden",
-        "fix": "At minimum, log the error or use a specific handler",
-    },
-    {
-        "id": "mutable-default",
-        "severity": "high",
-        "pattern": r"def\s+\w+\([^)]*=\s*\[\s*\]",
-        "desc": "Mutable default argument shared across calls",
-        "fix": "Use None as default: def fn(items=None): items = items or []",
-    },
-    {
-        "id": "mutable-default-dict",
-        "severity": "high",
-        "pattern": r"def\s+\w+\([^)]*=\s*\{\s*\}",
-        "desc": "Mutable default dict shared across calls",
-        "fix": "Use None as default: def fn(mapping=None): mapping = mapping or {}",
-    },
-    {
-        "id": "hardcoded-secret",
-        "severity": "critical",
-        "pattern": r"(api_key|secret|password|token|auth)\s*=\s*['\"][^'\"]{8,}['\"]",
-        "desc": "Hardcoded credential — will get leaked in git",
-        "fix": "Use os.environ.get('SECRET') or a .env file",
-    },
-    {
-        "id": "unsafe-eval",
-        "severity": "critical",
-        "pattern": r"\beval\s*\(|exec\s*\(|__import__\s*\(",
-        "desc": "Dynamic code execution — security risk",
-        "fix": "Use json.loads, ast.literal_eval, or explicit parsing",
-    },
-    {
-        "id": "unused-import",
-        "severity": "low",
-        "pattern": None,  # handled by AST
-        "desc": "Unused imports (AST check)",
-        "fix": "Remove unused imports to reduce load time",
-    },
-    {
-        "id": "too-broad-except",
-        "severity": "medium",
-        "pattern": r"except\s+Exception",
-        "desc": "Catching Exception is very broad",
-        "fix": "Catch specific exception types from the call chain",
-    },
-    {
-        "id": "fstring-injection",
-        "severity": "high",
-        "pattern": r'f"[^"]*\{[^}]*\[[^\]]*\][^}]*\}[^"]*"',
-        "desc": "Complex f-string with indexing — error-prone",
-        "fix": "Extract the value to a variable first",
-    },
-]
+console = Console()
+
+SEVERITY_ICON = {
+    "critical": "🔴",
+    "warning": "🟡",
+    "info": "🔵",
+}
+
+SEVERITY_COLOR = {
+    "critical": "red",
+    "warning": "yellow",
+    "info": "blue",
+}
 
 
-def ast_checks(source: str) -> List[Dict]:
-    """AST-based checks."""
-    issues = []
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as e:
-        return [{"id": "syntax-error", "severity": "critical",
-                 "desc": f"Syntax error: {e.msg}", "fix": "Fix syntax before further checks",
-                 "line": e.lineno or 0}]
-
-    # Unused imports
-    used_names = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name):
-            used_names.add(node.id)
-        if isinstance(node, ast.Attribute):
-            used_names.add(node.attr)
-
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            for alias in node.names:
-                name = alias.asname or alias.name.split(".")[0]
-                if name not in used_names and name != alias.name:
-                    issues.append({
-                        "id": "unused-import",
-                        "severity": "low",
-                        "desc": f"Import '{alias.name}' appears unused",
-                        "fix": f"Remove: import {alias.name}",
-                        "line": node.lineno,
-                    })
-
-    # Nested loops (complexity smell)
-    loop_depth = 0
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.For, ast.While)):
-            loop_depth += 1
-    if loop_depth >= 5:
-        issues.append({
-            "id": "deep-nesting",
-            "severity": "medium",
-            "desc": f"Code has {loop_depth} nested loops/for-while — hard to follow",
-            "fix": "Extract inner loops into separate functions",
-            "line": 0,
-        })
-
-    return issues
-
-
-def scan_code(filepath: str = None, code: str = None) -> Dict:
-    """Full scan: pattern + AST checks."""
-    if filepath:
-        with open(filepath) as f:
-            source = f.read()
-        name = os.path.basename(filepath)
-    elif code:
-        source = code
-        name = "stdin"
-    else:
-        return {"error": "No code provided"}
-
-    lines = source.split("\n")
-    issues = []
-
-    # Pattern checks
-    for p in PATTERNS:
-        if p["pattern"] is None:
-            continue
-        for i, line in enumerate(lines, 1):
-            if re.search(p["pattern"], line):
-                # Deduplicate: only first hit
-                if not any(x["id"] == p["id"] for x in issues):
-                    issues.append({**p, "line": i, "line_content": line.strip()[:80]})
-
-    # AST checks
-    issues.extend(ast_checks(source))
-
-    # Scoring
-    severity_weight = {"critical": 10, "high": 5, "medium": 2, "low": 1}
-    score = 100
-    for i in issues:
-        score -= severity_weight.get(i["severity"], 1)
-    score = max(0, min(100, score))
-
-    # Verdict
-    if score >= 90:
-        verdict = "🟢 PRODUCTION-READY"
-    elif score >= 70:
-        verdict = "🟡 NEEDS REVIEW"
-    elif score >= 50:
-        verdict = "🟠 HIGH RISK"
-    else:
-        verdict = "🔴 DO NOT DEPLOY"
-
-    return {
-        "file": name,
-        "lines": len(lines),
-        "issues_count": len(issues),
-        "score": score,
-        "verdict": verdict,
-        "issues": issues,
-    }
-
-
-def main():
-    # Read from file or stdin
-    if len(sys.argv) > 1:
-        filepath = sys.argv[1]
-        if not os.path.exists(filepath):
-            print(f"File not found: {filepath}")
-            sys.exit(1)
-        result = scan_code(filepath=filepath)
-    else:
-        source = sys.stdin.read().strip()
-        if not source:
-            print("Usage: code-inspector <file.py>")
-            print("   or: cat file.py | code-inspector")
-            sys.exit(1)
-        result = scan_code(code=source)
-
-    if "error" in result:
-        print(result["error"])
+def _print_smells_table(smells: list, title: str):
+    """Print a rich table of code smells."""
+    if not smells:
+        console.print(f"[green]No issues found[/green] — {title}")
         return
 
-    print("=" * 60)
-    print(f"  Code Inspector — AI Code Quality Scanner")
-    print("=" * 60)
-    print(f"\n📄 {result['file']} ({result['lines']} lines)")
-    print(f"🔍 {result['issues_count']} issues found")
-    print(f"📊 Score: {result['score']}/100 → {result['verdict']}")
+    table = Table(title=title, box=box.ROUNDED, expand=False)
+    table.add_column("#", style="dim", width=4)
+    table.add_column("Line", justify="right", width=6)
+    table.add_column("Severity", width=10)
+    table.add_column("Type", width=22)
+    table.add_column("Description", width=48)
+    table.add_column("Suggestion", width=40)
 
-    if result["issues"]:
-        print(f"\n── Issues ──")
-        for i, iss in enumerate(result["issues"], 1):
-            icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "⚪"}.get(iss["severity"], "⚪")
-            print(f"\n{icon} #{i} [{iss['id']}] {iss['severity'].upper()}")
-            print(f"   {iss['desc']}")
-            print(f"   Fix: {iss['fix']}")
-            if iss.get("line"):
-                line_content = iss.get("line_content", "")
-                print(f"   Line {iss['line']}: {line_content}")
+    for idx, smell in enumerate(smells, 1):
+        icon = SEVERITY_ICON.get(smell.severity, "⚪")
+        color = SEVERITY_COLOR.get(smell.severity, "white")
+        table.add_row(
+            str(idx),
+            str(smell.line_number),
+            f"{icon} [{color}]{smell.severity}[/{color}]",
+            smell.name,
+            smell.description[:80],
+            smell.fix_suggestion[:60],
+        )
+
+    console.print(table)
+
+
+def _quality_color(score: int) -> str:
+    if score >= 90:
+        return "green"
+    elif score >= 70:
+        return "yellow"
+    elif score >= 50:
+        return "orange1"
+    else:
+        return "red"
+
+
+def _print_score_bar(score: int, label: str):
+    """Print a visual quality score bar."""
+    color = _quality_color(score)
+    bar_len = 20
+    filled = int(score / 100 * bar_len)
+    bar = "█" * filled + "░" * (bar_len - filled)
+    console.print(f"{label}: [{color}]{bar}[/{color}] [{color}]{score}/100[/{color}]")
+
+
+@click.group()
+def main():
+    """code-inspector — detect AI-generated code quality issues."""
+
+
+@main.command()
+@click.argument("file", type=click.Path(exists=True))
+@click.option("--json", "json_output", is_flag=True, help="Output results as JSON")
+def check(file, json_output):
+    """Inspect a single file for AI-generated code smells."""
+    result = inspect_code(file)
+
+    if json_output:
+        import json
+        output = {
+            "file_path": result.file_path,
+            "language": result.language,
+            "quality_score": result.quality_score,
+            "smells": [
+                {
+                    "name": s.name,
+                    "severity": s.severity,
+                    "line_number": s.line_number,
+                    "description": s.description,
+                    "snippet": s.snippet,
+                    "fix_suggestion": s.fix_suggestion,
+                }
+                for s in result.smells
+            ],
+        }
+        console.print_json(json.dumps(output, indent=2))
+        return
+
+    console.print(Panel.fit(
+        f"[bold]{result.file_path}[/bold]  |  Language: {result.language}",
+        title="Code Inspector",
+        border_style="cyan",
+    ))
+    _print_score_bar(result.quality_score, "Quality Score")
+    _print_smells_table(result.smells, f"Smells Found: {len(result.smells)}")
+
+    if result.smells:
+        console.print(f"\n[bold red]{len(result.smells)} issue(s) detected.[/bold red]")
+    else:
+        console.print("\n[bold green]✓ Clean! No AI code smells detected.[/bold green]")
+
+
+@main.command()
+@click.argument("directory", type=click.Path(exists=True, file_okay=False))
+@click.option("--min-score", type=int, default=0, help="Only show files with score below this threshold")
+@click.option("--json", "json_output", is_flag=True, help="Output results as JSON")
+def scan(directory, min_score, json_output):
+    """Scan a directory recursively for AI-generated code smells."""
+    results = inspect_directory(directory)
+
+    if not results:
+        console.print("[yellow]No supported files found (.py, .js, .ts)[/yellow]")
+        return
+
+    if json_output:
+        import json
+        output = []
+        for r in results:
+            if r.quality_score >= min_score:
+                continue
+            output.append({
+                "file_path": r.file_path,
+                "language": r.language,
+                "quality_score": r.quality_score,
+                "smells_count": len(r.smells),
+                "smells": [
+                    {
+                        "name": s.name,
+                        "severity": s.severity,
+                        "line_number": s.line_number,
+                        "description": s.description,
+                    }
+                    for s in r.smells
+                ],
+            })
+        console.print_json(json.dumps(output, indent=2))
+        return
+
+    console.print(Panel.fit(
+        f"[bold]{directory}[/bold]  |  {len(results)} file(s) scanned",
+        title="Code Inspector — Directory Scan",
+        border_style="cyan",
+    ))
+
+    # Summary table
+    table = Table(title="Scan Results", box=box.ROUNDED)
+    table.add_column("File", style="cyan", max_width=50)
+    table.add_column("Lang", width=6)
+    table.add_column("Score", justify="right", width=8)
+    table.add_column("Issues", justify="right", width=8)
+    table.add_column("Top Smell", max_width=30)
+
+    total_smells = 0
+    for r in results:
+        if r.quality_score >= min_score and min_score > 0:
+            continue
+        total_smells += len(r.smells)
+        top_smell = ""
+        if r.smells:
+            smell_counts = {}
+            for s in r.smells:
+                smell_counts[s.name] = smell_counts.get(s.name, 0) + 1
+            top_smell = max(smell_counts, key=smell_counts.get)
+
+        score_color = _quality_color(r.quality_score)
+        table.add_row(
+            os.path.relpath(r.file_path, directory),
+            r.language[:6],
+            f"[{score_color}]{r.quality_score}[/{score_color}]",
+            str(len(r.smells)),
+            top_smell,
+        )
+
+    console.print(table)
+
+    # Overall stats
+    avg_score = sum(r.quality_score for r in results) / len(results) if results else 0
+    console.print(f"\n[bold]Total files:[/bold] {len(results)}  |  "
+                  f"[bold]Total issues:[/bold] {total_smells}  |  "
+                  f"[bold]Avg score:[/bold] {avg_score:.1f}")
+
+    # Show detailed smells for files with issues
+    files_with_issues = [r for r in results if r.smells]
+    if files_with_issues:
+        console.print(f"\n[bold]Files with issues ({len(files_with_issues)}):[/bold]")
+        for r in files_with_issues:
+            if r.quality_score >= min_score and min_score > 0:
+                continue
+            _print_smells_table(r.smells, f"{os.path.relpath(r.file_path, directory)} — Score: {r.quality_score}")
+
+
+@main.command()
+@click.argument("directory", type=click.Path(exists=True, file_okay=False))
+@click.option("--json", "json_output", is_flag=True, help="Output results as JSON")
+def stats(directory, json_output):
+    """Aggregate statistics: smells by type, quality score distribution."""
+    results = inspect_directory(directory)
+
+    if not results:
+        console.print("[yellow]No supported files found (.py, .js, .ts)[/yellow]")
+        return
+
+    # Aggregate stats
+    total_files = len(results)
+    total_smells = sum(len(r.smells) for r in results)
+    files_with_smells = sum(1 for r in results if r.smells)
+    files_clean = total_files - files_with_smells
+
+    # Smells by type
+    smell_type_counts = {}
+    for r in results:
+        for s in r.smells:
+            smell_type_counts[s.name] = smell_type_counts.get(s.name, 0) + 1
+
+    # Severity distribution
+    severity_counts = {"critical": 0, "warning": 0, "info": 0}
+    for r in results:
+        for s in r.smells:
+            severity_counts[s.severity] = severity_counts.get(s.severity, 0) + 1
+
+    # Quality score distribution
+    score_buckets = {"0-49": 0, "50-69": 0, "70-89": 0, "90-100": 0}
+    for r in results:
+        s = r.quality_score
+        if s < 50:
+            score_buckets["0-49"] += 1
+        elif s < 70:
+            score_buckets["50-69"] += 1
+        elif s < 90:
+            score_buckets["70-89"] += 1
+        else:
+            score_buckets["90-100"] += 1
+
+    avg_score = sum(r.quality_score for r in results) / total_files if total_files else 0
+
+    if json_output:
+        import json
+        output = {
+            "total_files": total_files,
+            "total_smells": total_smells,
+            "files_with_smells": files_with_smells,
+            "files_clean": files_clean,
+            "average_score": round(avg_score, 1),
+            "smells_by_type": dict(sorted(smell_type_counts.items(), key=lambda x: -x[1])),
+            "severity_distribution": severity_counts,
+            "score_distribution": score_buckets,
+        }
+        console.print_json(json.dumps(output, indent=2))
+        return
+
+    console.print(Panel.fit(
+        f"[bold]{directory}[/bold]",
+        title="Code Inspector — Statistics",
+        border_style="cyan",
+    ))
+
+    # Overview
+    overview = Table(title="Overview", box=box.ROUNDED)
+    overview.add_column("Metric", style="cyan")
+    overview.add_column("Value", justify="right")
+    overview.add_row("Total files scanned", str(total_files))
+    overview.add_row("Files with issues", str(files_with_smells))
+    overview.add_row("Clean files", str(files_clean))
+    overview.add_row("Total smells found", str(total_smells))
+    overview.add_row("Average quality score", f"{avg_score:.1f}/100")
+    console.print(overview)
+
+    # Smells by type
+    if smell_type_counts:
+        smell_table = Table(title="Smells by Type", box=box.ROUNDED)
+        smell_table.add_column("Type", style="cyan")
+        smell_table.add_column("Count", justify="right")
+        smell_table.add_column("Severity")
+        smell_table.add_column("Deduction/occurrence", justify="right")
+        for name, count in sorted(smell_type_counts.items(), key=lambda x: -x[1]):
+            weight = SEVERITY_WEIGHTS.get(name, 5)
+            if weight >= 20:
+                sev = "🔴 critical"
+            elif weight >= 10:
+                sev = "🟡 warning"
+            else:
+                sev = "🔵 info"
+            smell_table.add_row(name, str(count), sev, f"-{weight}")
+        console.print(smell_table)
+
+    # Severity distribution
+    sev_table = Table(title="Severity Distribution", box=box.ROUNDED)
+    sev_table.add_column("Severity")
+    sev_table.add_column("Count", justify="right")
+    sev_table.add_column("Bar")
+    max_sev = max(severity_counts.values()) if severity_counts else 1
+    for sev, cnt in severity_counts.items():
+        icon = SEVERITY_ICON.get(sev, "⚪")
+        bar_len = int(cnt / max(max_sev, 1) * 20)
+        bar = "█" * bar_len
+        sev_table.add_row(f"{icon} {sev}", str(cnt), bar)
+    console.print(sev_table)
+
+    # Score distribution
+    score_table = Table(title="Quality Score Distribution", box=box.ROUNDED)
+    score_table.add_column("Score Range")
+    score_table.add_column("Files", justify="right")
+    score_table.add_column("Bar")
+    max_bucket = max(score_buckets.values()) if score_buckets else 1
+    for bucket, cnt in score_buckets.items():
+        bar_len = int(cnt / max(max_bucket, 1) * 20)
+        bar = "█" * bar_len
+        score_table.add_row(bucket, str(cnt), bar)
+    console.print(score_table)
+
+    # Top offenders
+    offenders = sorted(results, key=lambda r: r.quality_score)[:5]
+    if offenders:
+        top_table = Table(title="Top 5 Lowest-Scoring Files", box=box.ROUNDED)
+        top_table.add_column("File", style="cyan", max_width=50)
+        top_table.add_column("Score", justify="right")
+        top_table.add_column("Issues", justify="right")
+        for r in offenders:
+            score_color = _quality_color(r.quality_score)
+            top_table.add_row(
+                os.path.relpath(r.file_path, directory),
+                f"[{score_color}]{r.quality_score}[/{score_color}]",
+                str(len(r.smells)),
+            )
+        console.print(top_table)
 
 
 if __name__ == "__main__":

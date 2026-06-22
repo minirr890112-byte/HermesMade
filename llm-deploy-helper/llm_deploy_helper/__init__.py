@@ -1,5 +1,3 @@
-"""LLM Deploy Helper — Detect hardware and get the perfect local LLM setup command."""
+"""llm-deploy-helper: CLI tool for local LLM deployment with Docker/GPU detection."""
 
-from .cli import main
-
-__version__ = "0.1.0"
+__version__ = "1.0.0"

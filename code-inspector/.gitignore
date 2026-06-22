@@ -1,0 +1,4 @@
+code_inspector.egg-info/
+__pycache__/
+.venv/
+*.pyc

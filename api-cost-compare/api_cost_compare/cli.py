@@ -1,264 +1,436 @@
-#!/usr/bin/env python3
-"""
-API Cost Compare — Compare AI API pricing across 18 models and optimize costs.
-Find the cheapest model for your use case, track spending over time.
+"""CLI 入口模块 — 基于 click 的命令行工具。
 
-Usage:
-  api-cost list                  # list all model pricing
-  api-cost recommend coding      # recommend per scenario (coding/chat/writing/reasoning)
-  api-cost track 2.50 openai     # log a spend
-  api-cost report                # spending summary
-
-Source: Reddit pain #3 — AI API pricing opaque and expensive
-Repo: github.com/minirr890112-byte/HermesMade
+提供四个子命令：
+  list      列出所有模型及其定价
+  compare   并排对比两个模型
+  recommend 根据任务类型和预算推荐最佳模型
+  estimate  估算指定模型的 API 调用成本
 """
 
-import json, os, sys, time
-from datetime import datetime
+import click
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
+from rich.panel import Panel
+from rich import box
 
-DATA_FILE = os.path.expanduser("~/.hermes/api-cost-tracker.json")
+from api_cost_compare.providers import (
+    get_all_pricing,
+    compare_models,
+    estimate_cost,
+    find_model,
+)
 
-# ── Live pricing data (April 2026) ──
-PRICING = [
-    # OpenAI
-    {"provider": "OpenAI", "model": "GPT-4o", "input_cost": 2.50, "output_cost": 10.00, "context": 128000, "tags": ["chat", "coding", "writing", "reasoning"]},
-    {"provider": "OpenAI", "model": "GPT-4o-mini", "input_cost": 0.15, "output_cost": 0.60, "context": 128000, "tags": ["chat", "coding", "writing"]},
-    {"provider": "OpenAI", "model": "GPT-4.1", "input_cost": 2.00, "output_cost": 8.00, "context": 1000000, "tags": ["coding", "reasoning", "writing"]},
-    {"provider": "OpenAI", "model": "GPT-4.1-mini", "input_cost": 0.40, "output_cost": 1.60, "context": 1000000, "tags": ["chat", "coding", "writing"]},
-    {"provider": "OpenAI", "model": "GPT-4.1-nano", "input_cost": 0.10, "output_cost": 0.40, "context": 1000000, "tags": ["chat"]},
-    {"provider": "OpenAI", "model": "o3", "input_cost": 10.00, "output_cost": 40.00, "context": 200000, "tags": ["reasoning", "coding"]},
-    {"provider": "OpenAI", "model": "o4-mini", "input_cost": 1.10, "output_cost": 4.40, "context": 200000, "tags": ["reasoning", "coding"]},
-
-    # Anthropic
-    {"provider": "Anthropic", "model": "Claude Opus 4.7", "input_cost": 15.00, "output_cost": 75.00, "context": 200000, "tags": ["coding", "writing", "reasoning"]},
-    {"provider": "Anthropic", "model": "Claude Sonnet 4.5", "input_cost": 3.00, "output_cost": 15.00, "context": 200000, "tags": ["coding", "chat", "writing"]},
-    {"provider": "Anthropic", "model": "Claude Haiku 4.5", "input_cost": 0.80, "output_cost": 4.00, "context": 200000, "tags": ["chat"]},
-
-    # Google
-    {"provider": "Google", "model": "Gemini 2.5 Pro", "input_cost": 1.25, "output_cost": 10.00, "context": 1000000, "tags": ["coding", "reasoning", "writing"]},
-    {"provider": "Google", "model": "Gemini 2.5 Flash", "input_cost": 0.15, "output_cost": 0.60, "context": 1000000, "tags": ["chat", "coding", "writing"]},
-
-    # DeepSeek
-    {"provider": "DeepSeek", "model": "DeepSeek V4 Pro", "input_cost": 0.55, "output_cost": 2.19, "context": 1000000, "tags": ["coding", "reasoning", "writing", "chat"]},
-    {"provider": "DeepSeek", "model": "DeepSeek V4 Flash", "input_cost": 0.14, "output_cost": 0.28, "context": 1000000, "tags": ["chat", "coding", "writing"]},
-    {"provider": "DeepSeek", "model": "DeepSeek R1-0528", "input_cost": 0.55, "output_cost": 2.19, "context": 128000, "tags": ["reasoning", "coding"]},
-
-    # xAI
-    {"provider": "xAI", "model": "Grok 3", "input_cost": 3.00, "output_cost": 15.00, "context": 131072, "tags": ["chat", "reasoning", "coding"]},
-    {"provider": "xAI", "model": "Grok 3 Mini", "input_cost": 0.30, "output_cost": 1.50, "context": 131072, "tags": ["chat", "coding"]},
-
-    # Mistral
-    {"provider": "Mistral", "model": "Mistral Large 2", "input_cost": 2.00, "output_cost": 6.00, "context": 128000, "tags": ["coding", "writing", "reasoning"]},
-    {"provider": "Mistral", "model": "Mistral Small 3", "input_cost": 0.10, "output_cost": 0.30, "context": 128000, "tags": ["chat", "coding"]},
-]
-
-# ── Typical scenario token estimates ──
-SCENARIOS = {
-    "coding":     {"input_tokens": 5000, "output_tokens": 2000, "requests_per_day": 50},
-    "chat":       {"input_tokens": 500,  "output_tokens": 500,  "requests_per_day": 100},
-    "writing":    {"input_tokens": 1000, "output_tokens": 3000, "requests_per_day": 10},
-    "reasoning":  {"input_tokens": 2000, "output_tokens": 4000, "requests_per_day": 20},
-}
+console = Console()
 
 
-def daily_cost(model: dict, scenario: dict) -> float:
-    in_cost = model["input_cost"] / 1_000_000 * scenario["input_tokens"]
-    out_cost = model["output_cost"] / 1_000_000 * scenario["output_tokens"]
-    return (in_cost + out_cost) * scenario["requests_per_day"]
+# ────────────────────────────────────────────────────────────────
+# 辅助函数
+# ────────────────────────────────────────────────────────────────
 
-
-def monthly_cost(model: dict, scenario: dict) -> float:
-    return daily_cost(model, scenario) * 30
-
-
-def list_all():
-    print("=" * 80)
-    print("  API Cost Compare — AI API Pricing (April 2026)")
-    print("=" * 80)
-    print(f"{'Provider':<14} {'Model':<22} {'Input/1M':>8} {'Output/1M':>10} {'Context':>10}")
-    print("-" * 70)
-
-    for p in sorted(PRICING, key=lambda x: (x["provider"], x["output_cost"])):
-        print(f"{p['provider']:<14} {p['model']:<22} ${p['input_cost']:>7.2f} ${p['output_cost']:>9.2f} {p['context']:>9,}")
-
-    print("-" * 70)
-    print("💡 Use 'api-cost recommend <scenario>' for personalized recommendations")
-
-
-def recommend(scenario_name: str = None):
-    if scenario_name not in SCENARIOS:
-        print(f"Available scenarios: {', '.join(SCENARIOS.keys())}")
-        print("Usage: api-cost recommend coding")
-        return
-
-    scenario = SCENARIOS[scenario_name]
-    candidates = [p for p in PRICING if scenario_name in p["tags"]]
-
-    results = []
-    for p in candidates:
-        daily = daily_cost(p, scenario)
-        monthly = monthly_cost(p, scenario)
-        results.append({
-            "model": f"{p['provider']} {p['model']}",
-            "daily": daily,
-            "monthly": monthly,
-        })
-
-    results.sort(key=lambda x: x["monthly"])
-
-    print(f"\n{'='*70}")
-    print(f"  Scenario: {scenario_name}")
-    print(f"  Est: {scenario['input_tokens']:,} input / {scenario['output_tokens']:,} output tokens/request")
-    print(f"  Volume: {scenario['requests_per_day']} requests/day")
-    print(f"{'='*70}")
-    print(f"{'Rank':<6} {'Model':<40} {'Daily':>8} {'Monthly':>8}")
-    print("-" * 66)
-
-    for i, r in enumerate(results[:10], 1):
-        marker = "⭐" if i <= 3 else "  "
-        print(f"{marker} #{i:<3} {r['model']:<40} ${r['daily']:>7.2f} ${r['monthly']:>7.2f}")
-
-    print("-" * 66)
-
-    if len(results) >= 2:
-        cheapest = results[0]
-        expensive = results[-1]
-        savings = expensive["monthly"] - cheapest["monthly"]
-        print(f"\n💸 Choosing {cheapest['model']} over {expensive['model']}")
-        print(f"   Saves ${savings:.2f}/month, ${savings*12:.2f}/year")
-        print(f"   That's {(savings/expensive['monthly']*100):.0f}% cheaper")
-
-
-def compare_two(model1_idx: int, model2_idx: int, scenario_name: str):
-    if scenario_name not in SCENARIOS:
-        scenario_name = "chat"
-    scenario = SCENARIOS[scenario_name]
-
-    m1 = PRICING[model1_idx] if 0 <= model1_idx < len(PRICING) else None
-    m2 = PRICING[model2_idx] if 0 <= model2_idx < len(PRICING) else None
-
-    if not m1 or not m2:
-        print("Run 'api-cost list' first to see model indices")
-        return
-
-    d1, m1_cost = daily_cost(m1, scenario), monthly_cost(m1, scenario)
-    d2, m2_cost = daily_cost(m2, scenario), monthly_cost(m2, scenario)
-
-    print(f"\nComparison: {m1['provider']} {m1['model']} vs {m2['provider']} {m2['model']}")
-    print(f"Scenario: {scenario_name} ({scenario['requests_per_day']} req/day)")
-    print(f"{'':>30} {'Model 1':>15} {'Model 2':>15}")
-    print(f"{'Daily cost':>30} ${d1:>14.2f} ${d2:>14.2f}")
-    print(f"{'Monthly cost':>30} ${m1_cost:>14.2f} ${m2_cost:>14.2f}")
-    print(f"{'Yearly cost':>30} ${m1_cost*12:>14.2f} ${m2_cost*12:>14.2f}")
-    diff = m1_cost - m2_cost
-    if diff > 0:
-        print(f"\n💰 Model 2 saves ${diff:.2f}/month")
+def _price_str(price: float) -> str:
+    """格式化价格为易读字符串。"""
+    if price >= 1:
+        return f"${price:.2f}"
+    elif price >= 0.01:
+        return f"${price:.4f}"
     else:
-        print(f"\n💰 Model 1 saves ${-diff:.2f}/month")
+        return f"${price:.6f}"
 
 
-def track_spending(amount: float, provider: str = "", model: str = ""):
-    records = []
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE) as f:
-            records = json.load(f)
-
-    records.append({
-        "date": datetime.now().isoformat()[:10],
-        "amount": amount,
-        "provider": provider,
-        "model": model,
-    })
-
-    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-    with open(DATA_FILE, "w") as f:
-        json.dump(records, f, indent=2)
-
-    total = sum(r["amount"] for r in records)
-    this_month = sum(r["amount"] for r in records
-                     if r["date"][:7] == datetime.now().isoformat()[:7])
-
-    print(f"✅ Logged: ${amount:.2f}")
-    print(f"   This month: ${this_month:.2f}")
-    print(f"   All time: ${total:.2f}")
+def _context_str(tokens: int) -> str:
+    """格式化上下文窗口大小。"""
+    if tokens >= 1_000_000:
+        return f"{tokens / 1_000_000:.0f}M"
+    elif tokens >= 1_000:
+        return f"{tokens / 1_000:.0f}K"
+    return str(tokens)
 
 
-def spending_report():
-    if not os.path.exists(DATA_FILE):
-        print("No spending records yet. Use 'api-cost track <amount>' to log.")
-        return
+def _build_pricing_table(models, highlight_idx: int = -1) -> Table:
+    """构建通用的模型定价表格。"""
+    table = Table(
+        title="LLM API 定价对比",
+        box=box.ROUNDED,
+        header_style="bold cyan",
+        title_style="bold white",
+        show_lines=True,
+    )
+    table.add_column("#", style="dim", width=4, justify="right")
+    table.add_column("模型名称", style="bold")
+    table.add_column("提供商", style="magenta")
+    table.add_column("输入价格 /1M", justify="right")
+    table.add_column("输出价格 /1M", justify="right")
+    table.add_column("上下文窗口", justify="right")
+    table.add_column("任务标签")
 
-    with open(DATA_FILE) as f:
-        records = json.load(f)
+    for i, m in enumerate(models):
+        style = "bold yellow" if i == highlight_idx else None
+        row_style = "on grey30" if i == highlight_idx else ""
+        table.add_row(
+            str(i + 1),
+            m.model_name,
+            m.provider_name,
+            _price_str(m.input_price_per_1M),
+            _price_str(m.output_price_per_1M),
+            _context_str(m.context_window),
+            ", ".join(m.task_tags),
+            style=row_style,
+        )
+    return table
 
-    total = sum(r["amount"] for r in records)
-    monthly = {}
-    for r in records:
-        month = r["date"][:7]
-        monthly[month] = monthly.get(month, 0) + r["amount"]
 
-    print(f"\n📊 Spending Report")
-    print(f"All time: ${total:.2f} | Entries: {len(records)}")
-    print(f"{'Month':<10} {'Amount':>10}")
-    for m in sorted(monthly.keys()):
-        bar = "█" * int(monthly[m] * 2)
-        print(f"{m:<10} ${monthly[m]:>8.2f}  {bar}")
+def _sort_by_input_price(models):
+    """按输入价格升序排列。"""
+    return sorted(models, key=lambda m: m.input_price_per_1M)
 
 
+# ────────────────────────────────────────────────────────────────
+# CLI 命令
+# ────────────────────────────────────────────────────────────────
+
+@click.group()
+@click.version_option(version="1.0.0", prog_name="api-cost-compare")
 def main():
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "help"
+    """api-cost-compare — 对比各大 LLM 提供商 API 定价。
 
-    if cmd == "list":
-        list_all()
+    支持 Anthropic、OpenAI、DeepSeek、Google、OpenRouter、Mistral 等提供商。
+    """
+    pass
 
-    elif cmd == "recommend":
-        scenario = sys.argv[2] if len(sys.argv) > 2 else None
-        if not scenario:
-            print("Usage: api-cost recommend <scenario>")
-            print(f"Scenarios: {', '.join(SCENARIOS.keys())}")
+
+@main.command("list")
+def list_models():
+    """列出所有模型，按输入价格从低到高排序。"""
+    models = _sort_by_input_price(get_all_pricing())
+
+    console.print()
+    console.print(
+        Panel.fit(
+            "[bold]📋 所有 LLM 模型定价列表[/bold]\n按输入价格从低到高排列",
+            border_style="green",
+        )
+    )
+    console.print()
+
+    table = Table(
+        box=box.ROUNDED,
+        header_style="bold cyan",
+        title_style="bold white",
+        show_lines=True,
+    )
+    table.add_column("模型名称", style="bold")
+    table.add_column("提供商", style="magenta")
+    table.add_column("输入价格 /1M", justify="right", style="green")
+    table.add_column("输出价格 /1M", justify="right", style="yellow")
+    table.add_column("上下文窗口", justify="right")
+    table.add_column("任务标签")
+
+    for m in models:
+        table.add_row(
+            m.model_name,
+            m.provider_name,
+            _price_str(m.input_price_per_1M),
+            _price_str(m.output_price_per_1M),
+            _context_str(m.context_window),
+            ", ".join(m.task_tags),
+        )
+
+    console.print(table)
+
+    # 摘要
+    cheapest = models[0]
+    most_expensive = models[-1]
+    console.print()
+    console.print(
+        f"[dim]共 {len(models)} 个模型 | "
+        f"最低输入价格: [green]{_price_str(cheapest.input_price_per_1M)}[/green] ({cheapest.model_name}) | "
+        f"最高输入价格: [red]{_price_str(most_expensive.input_price_per_1M)}[/red] ({most_expensive.model_name})[/dim]"
+    )
+    console.print()
+
+
+@main.command("compare")
+@click.argument("model1")
+@click.argument("model2")
+def compare_cmd(model1, model2):
+    """并排对比两个模型的定价。"""
+    m1 = find_model(model1)
+    m2 = find_model(model2)
+
+    if not m1:
+        console.print(f"\n[red]❌ 未找到模型: {model1}[/red]")
+        console.print("[dim]提示: 使用 [bold]api-cost-compare list[/bold] 查看所有可用模型[/dim]\n")
+        return
+    if not m2:
+        console.print(f"\n[red]❌ 未找到模型: {model2}[/red]")
+        console.print("[dim]提示: 使用 [bold]api-cost-compare list[/bold] 查看所有可用模型[/dim]\n")
+        return
+
+    console.print()
+    console.print(
+        Panel.fit(
+            f"[bold]⚖️  模型对比: {m1.model_name} vs {m2.model_name}[/bold]",
+            border_style="blue",
+        )
+    )
+
+    # 并排表格
+    table = Table(box=box.ROUNDED, header_style="bold cyan", show_lines=True)
+    table.add_column("指标", style="bold", width=20)
+    table.add_column(m1.model_name, justify="center")
+    table.add_column(m2.model_name, justify="center")
+
+    rows = [
+        ("提供商", m1.provider_name, m2.provider_name),
+        ("输入价格 /1M", _price_str(m1.input_price_per_1M), _price_str(m2.input_price_per_1M)),
+        ("输出价格 /1M", _price_str(m1.output_price_per_1M), _price_str(m2.output_price_per_1M)),
+        ("上下文窗口", _context_str(m1.context_window), _context_str(m2.context_window)),
+        ("任务标签", ", ".join(m1.task_tags), ", ".join(m2.task_tags)),
+    ]
+
+    for label, v1, v2 in rows:
+        # 高亮价格较低的一方
+        if "输入价格" in label:
+            if m1.input_price_per_1M < m2.input_price_per_1M:
+                v1 = f"[green]{v1} ✅[/green]"
+                v2 = f"[red]{v2}[/red]"
+            elif m1.input_price_per_1M > m2.input_price_per_1M:
+                v1 = f"[red]{v1}[/red]"
+                v2 = f"[green]{v2} ✅[/green]"
+        elif "输出价格" in label:
+            if m1.output_price_per_1M < m2.output_price_per_1M:
+                v1 = f"[green]{v1} ✅[/green]"
+                v2 = f"[red]{v2}[/red]"
+            elif m1.output_price_per_1M > m2.output_price_per_1M:
+                v1 = f"[red]{v1}[/red]"
+                v2 = f"[green]{v2} ✅[/green]"
+
+        table.add_row(label, v1, v2)
+
+    console.print(table)
+
+    # 成本示例
+    console.print()
+    examples = [
+        (1_000, 500, "小"),
+        (10_000, 5_000, "中"),
+        (100_000, 50_000, "大"),
+    ]
+    cost_table = Table(
+        title="💰 成本对比示例",
+        box=box.SIMPLE,
+        header_style="bold cyan",
+    )
+    cost_table.add_column("场景 (输入/输出)", justify="center")
+    cost_table.add_column(m1.model_name, justify="right")
+    cost_table.add_column(m2.model_name, justify="right")
+    cost_table.add_column("节省", justify="right", style="green")
+
+    for inp, out, label in examples:
+        c1 = (m1.input_price_per_1M * inp + m1.output_price_per_1M * out) / 1_000_000
+        c2 = (m2.input_price_per_1M * inp + m2.output_price_per_1M * out) / 1_000_000
+        saving = abs(c1 - c2)
+        saving_pct = (saving / max(c1, c2)) * 100 if max(c1, c2) > 0 else 0
+
+        if c1 < c2:
+            c1_str = f"[green]{_price_str(c1)}[/green]"
+            c2_str = f"[red]{_price_str(c2)}[/red]"
+            cost_table.add_row(
+                f"{label}规模 ({inp:,}/{out:,})",
+                c1_str,
+                c2_str,
+                f"省 {_price_str(saving)} ({saving_pct:.0f}%)",
+            )
+        elif c2 < c1:
+            c1_str = f"[red]{_price_str(c1)}[/red]"
+            c2_str = f"[green]{_price_str(c2)}[/green]"
+            cost_table.add_row(
+                f"{label}规模 ({inp:,}/{out:,})",
+                c1_str,
+                c2_str,
+                f"省 {_price_str(saving)} ({saving_pct:.0f}%)",
+            )
         else:
-            recommend(scenario)
+            cost_table.add_row(
+                f"{label}规模 ({inp:,}/{out:,})",
+                _price_str(c1),
+                _price_str(c2),
+                "相同",
+            )
 
-    elif cmd == "compare":
-        if len(sys.argv) < 4:
-            print("Usage: api-cost compare <idx1> <idx2> [scenario]")
-            print("Run 'api-cost list' first to see indices")
-        else:
-            compare_two(int(sys.argv[2]), int(sys.argv[3]),
-                       sys.argv[4] if len(sys.argv) > 4 else "chat")
+    console.print(cost_table)
+    console.print()
 
-    elif cmd == "track":
-        if len(sys.argv) < 3:
-            print("Usage: api-cost track <amount> [provider] [model]")
-        else:
-            amount = float(sys.argv[2])
-            provider = sys.argv[3] if len(sys.argv) > 3 else ""
-            model = sys.argv[4] if len(sys.argv) > 4 else ""
-            track_spending(amount, provider, model)
 
-    elif cmd == "report":
-        spending_report()
+@main.command("recommend")
+@click.option(
+    "--task",
+    type=click.Choice(["chat", "coding", "reasoning"]),
+    default="chat",
+    help="任务类型: chat（对话）, coding（编码）, reasoning（推理）",
+)
+@click.option(
+    "--budget",
+    type=float,
+    default=10.00,
+    help="月度预算（美元），用于计算可处理的请求量",
+)
+@click.option(
+    "--input-tokens",
+    type=int,
+    default=1000,
+    help="每次请求的平均输入 token 数",
+)
+@click.option(
+    "--output-tokens",
+    type=int,
+    default=500,
+    help="每次请求的平均输出 token 数",
+)
+def recommend_cmd(task, budget, input_tokens, output_tokens):
+    """根据任务类型和预算推荐最佳模型。"""
+    task_names = {"chat": "对话", "coding": "编码", "reasoning": "推理"}
+    task_name = task_names.get(task, task)
 
-    elif cmd == "scenarios":
-        print("Available scenarios and estimates:")
-        for name, params in SCENARIOS.items():
-            print(f"  {name}: {params['input_tokens']:,} in / {params['output_tokens']:,} out × {params['requests_per_day']} req/day")
+    console.print()
+    console.print(
+        Panel.fit(
+            f"[bold]🎯 推荐模型[/bold]\n"
+            f"任务类型: [cyan]{task_name}[/cyan] | "
+            f"月度预算: [yellow]${budget:.2f}[/yellow] | "
+            f"每次用量: {input_tokens:,} 输入 / {output_tokens:,} 输出 tokens",
+            border_style="green",
+        )
+    )
+    console.print()
 
-    else:
-        print("API Cost Compare — AI API Cost Optimizer")
-        print("")
-        print("Commands:")
-        print("  list              List all 18 models with pricing")
-        print("  recommend <scenario>  Recommend cheapest for your use case")
-        print("  compare <i1> <i2> Compare two specific models")
-        print("  track <amount>    Log a spending entry")
-        print("  report            View spending summary")
-        print("  scenarios         Show scenario parameters")
-        print("")
-        print("Examples:")
-        print("  api-cost recommend coding")
-        print("  api-cost track 2.50 openai gpt-4o")
+    results = compare_models(task_type=task, input_tokens=input_tokens, output_tokens=output_tokens)
 
+    if not results:
+        console.print("[yellow]⚠️ 没有找到匹配的模型[/yellow]\n")
+        return
+
+    table = Table(
+        title=f"📊 {task_name}任务模型推荐",
+        box=box.ROUNDED,
+        header_style="bold cyan",
+        show_lines=True,
+    )
+    table.add_column("排名", style="dim", width=4, justify="right")
+    table.add_column("模型名称", style="bold")
+    table.add_column("提供商", style="magenta")
+    table.add_column("单次成本", justify="right", style="green")
+    table.add_column("月度可用请求数", justify="right", style="yellow")
+    table.add_column("上下文窗口", justify="right")
+
+    for rank, (m, cost) in enumerate(results, 1):
+        per_request = (m.input_price_per_1M * input_tokens + m.output_price_per_1M * output_tokens) / 1_000_000
+        requests_per_month = int(budget / per_request) if per_request > 0 else 0
+        style = "on grey30" if rank == 1 else ""
+
+        table.add_row(
+            str(rank),
+            m.model_name,
+            m.provider_name,
+            _price_str(per_request),
+            f"{requests_per_month:,}",
+            _context_str(m.context_window),
+            style=style,
+        )
+
+    console.print(table)
+
+    # 推荐小结
+    best_model, best_cost = results[0]
+    console.print()
+    console.print(
+        f"[bold green]🏆 推荐: {best_model.model_name} ({best_model.provider_name})[/bold green]"
+    )
+    console.print(
+        f"   单次请求成本: {_price_str(best_cost)}, "
+        f"月度可完成约 {int(budget / best_cost):,} 次请求"
+    )
+    console.print()
+
+
+@main.command("estimate")
+@click.option("--model", required=True, help="模型名称（如 'GPT-4o'、'deepseek-chat'）")
+@click.option("--input", "input_tokens", type=int, default=1000, help="输入 token 数量")
+@click.option("--output", "output_tokens", type=int, default=500, help="输出 token 数量")
+def estimate_cmd(model, input_tokens, output_tokens):
+    """估算指定模型的单次 API 调用成本。"""
+    m = find_model(model)
+
+    if not m:
+        console.print(f"\n[red]❌ 未找到模型: {model}[/red]")
+        console.print("[dim]提示: 使用 [bold]api-cost-compare list[/bold] 查看所有可用模型[/dim]")
+        console.print("[dim]模型名称需要完全匹配，包括大小写和空格[/dim]\n")
+        return
+
+    cost = estimate_cost(model, input_tokens, output_tokens)
+    input_cost = m.input_price_per_1M * input_tokens / 1_000_000
+    output_cost = m.output_price_per_1M * output_tokens / 1_000_000
+
+    console.print()
+    console.print(
+        Panel.fit(
+            f"[bold]💰 成本估算[/bold]\n"
+            f"模型: [cyan]{m.model_name}[/cyan] ({m.provider_name})",
+            border_style="blue",
+        )
+    )
+    console.print()
+
+    table = Table(box=box.SIMPLE_HEAD, header_style="bold cyan")
+    table.add_column("项目", style="bold")
+    table.add_column("详情", justify="right")
+
+    table.add_row("模型", m.model_name)
+    table.add_row("提供商", m.provider_name)
+    table.add_row("输入 Token 数", f"{input_tokens:,}")
+    table.add_row("输出 Token 数", f"{output_tokens:,}")
+    table.add_row("输入单价 /1M", _price_str(m.input_price_per_1M))
+    table.add_row("输出单价 /1M", _price_str(m.output_price_per_1M))
+    table.add_row("输入成本", _price_str(input_cost))
+    table.add_row("输出成本", _price_str(output_cost))
+    table.add_row(
+        "[bold]总成本[/bold]",
+        f"[bold green]{_price_str(cost)}[/bold green]",
+    )
+
+    console.print(table)
+
+    # 扩展估算
+    console.print()
+    ext_table = Table(
+        title="📈 扩展估算（相同比例）",
+        box=box.SIMPLE,
+        header_style="bold cyan",
+    )
+    ext_table.add_column("规模")
+    ext_table.add_column("输入 Tokens", justify="right")
+    ext_table.add_column("输出 Tokens", justify="right")
+    ext_table.add_column("成本", justify="right", style="green")
+
+    for factor, label in [(10, "×10"), (100, "×100"), (1000, "×1K"), (10_000, "×10K")]:
+        ext_in = input_tokens * factor
+        ext_out = output_tokens * factor
+        ext_cost = estimate_cost(model, ext_in, ext_out)
+        ext_table.add_row(
+            label,
+            f"{ext_in:,}",
+            f"{ext_out:,}",
+            _price_str(ext_cost),
+        )
+
+    console.print(ext_table)
+    console.print()
+
+
+# ────────────────────────────────────────────────────────────────
+# 入口
+# ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     main()

@@ -1,5 +1,3 @@
-"""Code Inspector — Scan AI-generated code for issues and production readiness."""
+"""code-inspector: AI-generated code quality issue detector."""
 
-from .cli import main
-
-__version__ = "0.1.0"
+__version__ = "1.0.0"
