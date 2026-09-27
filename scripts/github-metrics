@@ -25,9 +25,9 @@ def fetch_metrics():
     now = datetime.now().isoformat()
 
     # Stars / forks / watchers
-    stars = gh("repo", "view", "--json", "stargazerCount", "-q", ".stargazerCount")
-    forks = gh("repo", "view", "--json", "forkCount", "-q", ".forkCount")
-    watchers = gh("repo", "view", "--json", "watchers", "-q", ".watchers.totalCount")
+    stars = gh("repo", "view", REPO, "--json", "stargazerCount", "-q", ".stargazerCount")
+    forks = gh("repo", "view", REPO, "--json", "forkCount", "-q", ".forkCount")
+    watchers = gh("repo", "view", REPO, "--json", "watchers", "-q", ".watchers.totalCount")
 
     # Traffic
     views_raw = gh("api", f"repos/{REPO}/traffic/views")
