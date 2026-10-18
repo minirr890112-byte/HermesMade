@@ -364,6 +364,14 @@ def main():
         zh_results = scan_v2ex()
         results.extend(zh_results)
 
+        # GFW fallback: if BOTH reddit.com and v2ex.com are blocked (0 results),
+        # delegate to the Arctic Shift mirror scanner (arctic-shift.photon-reddit.com).
+        if len(results) == 0:
+            print("\n🚧 reddit.com + v2ex.com blocked (GFW). Delegating to Arctic Shift fallback scanner...")
+            fallback = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gfw-fallback-scan.py")
+            subprocess.run([sys.executable, fallback], cwd=REPO_DIR)
+            return
+
         # Step 2: Classify
         print("\n📊 Classifying...")
         clusters = classify_pains(results)
