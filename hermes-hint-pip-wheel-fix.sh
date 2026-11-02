@@ -1,67 +1,34 @@
 #!/bin/sh
-# hermes-hint-pip-wheel-fix.sh — Fix "pip install <pkg>" failing on a source build
-# Usage: ./hermes-hint-pip-wheel-fix.sh [package]
-# Safe for beginners • POSIX-compliant • Idempotent • No sudo
-#
-# Fixes errors like:
-#   "Using cached <pkg>-X.Y.Z.tar.gz"
-#   "Preparing metadata (pyproject.toml) ... error"
-#   "error: subprocess-exited-with-error"
-#   "WARNING: Failed to activate VS environment ... vswhere.exe"
-#
-# Root cause: pip can't find a prebuilt wheel for your Python version, so it
-# falls back to compiling from source — which fails without a C/C++ compiler.
+# hermes-hint-pip-wheel-fix.sh — recover from pip "error: failed building wheel for <pkg>"
+# Usage: ./hermes-hint-pip-wheel-fix.sh [package-name]   (default: pygame)
+# Safe for beginners • POSIX-compliant • Idempotent • No sudo required
 
-set -u
+PKG="${1:-pygame}"
 
-PKG="${1:-matplotlib}"
-BASE="${PKG%%[=<>!~ ]*}"
+echo "==> pip wheel build fixer — installing '${PKG}' without compiling from source"
+echo
 
-echo "==> Python wheel installer — install '$PKG' without compiling from source"
-
-# --- Locate Python ---
-PY=""
-for c in python3 python py; do
-    if command -v "$c" >/dev/null 2>&1; then
-        PY="$c"; break
-    fi
-done
-if [ -z "$PY" ]; then
-    echo "!! No Python found on PATH. Install from https://python.org/downloads/"
-    exit 1
+# 1. Confirm python3 exists before doing anything
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "✗ python3 not found. Install Python 3 first: https://python.org/downloads/"
+  exit 1
 fi
-echo "-> Python: $($PY --version 2>&1)"
+echo "→ Python: $(command -p python3 --version)"
 
-# --- Platform note ---
-case "$(uname -s)" in
-    Darwin) echo "-> OS: macOS" ;;
-    Linux)  echo "-> OS: Linux" ;;
-    *)      echo "-> OS: $(uname -s) (Windows users: run this in Git Bash or WSL)" ;;
-esac
+# 2. Refresh the build toolchain (harmless and idempotent to re-run)
+echo "→ Upgrading pip / setuptools / wheel..."
+command -p python3 -m pip install --user --upgrade pip setuptools wheel 2>/dev/null   || command -p python3 -m pip install --upgrade pip setuptools wheel
 
-# --- 1. Upgrade pip so it can see the latest wheels ---
-echo "-> Upgrading pip (old pip can't see recently-published wheels)..."
-"$PY" -m pip install --upgrade pip || true
-
-# --- 2. Install from a prebuilt wheel only (never compile from source) ---
-echo "-> Installing '$PKG' (binary-only, no source build)..."
-if "$PY" -m pip install --only-binary :all: "$PKG"; then
-    echo ""
-    echo "OK. '$PKG' installed from a prebuilt wheel."
-    echo "Verify it works: $PY -c \"import $BASE; print($BASE.__version__)\"" 
-    exit 0
+# 3. Force a PREBUILT wheel — this skips the C-source build that normally fails
+echo "→ Installing '${PKG}' from a prebuilt wheel (no C compiler needed)..."
+if command -p python3 -m pip install --only-binary :all: "${PKG}"; then
+  echo "✓ '${PKG}' installed from a prebuilt wheel."
+else
+  echo "✗ No prebuilt wheel available for '${PKG}' on this Python version."
+  echo "  Try a newer Python (3.11+), or run:"
+  echo "    python3 -m pip install --upgrade pip setuptools wheel"
+  echo "    python3 -m pip install ${PKG}"
 fi
 
-# --- 3. If no wheel exists, here's why and how to fix it ---
-echo ""
-echo "No prebuilt wheel found for your Python version. Try in this order:"
-echo "  1. Your Python may be too new (wheels can lag releases by weeks)."
-echo "     Check https://pypi.org/project/$PKG/#files for a wheel matching"
-echo "     your Python (e.g. cp312, cp313). Use a Python version that has"
-echo "     wheels, or wait for one to be published."
-echo "  2. conda/miniconda users:  conda install $PKG"
-echo "  3. Confirm your terminal uses the same Python as your editor/IDE:"
-echo "       $PY -c 'import sys; print(sys.executable)'"
-echo "  4. Download a matching .whl from the files page above, then:"
-echo "       $PY -m pip install /path/to/downloaded.whl"
-exit 1
+echo
+echo "✓ Done. If '${PKG}' still won't install, paste the full error to r/learnpython."
